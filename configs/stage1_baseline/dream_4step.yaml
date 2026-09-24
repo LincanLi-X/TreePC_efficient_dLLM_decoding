@@ -1,0 +1,5 @@
+model: dream_7b_instruct
+steps: 4
+algorithm: entropy
+temperature: 0.0
+alg_temp: 0.0

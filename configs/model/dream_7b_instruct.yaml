@@ -1,0 +1,10 @@
+name: dream_7b_instruct
+repo_id: Dream-org/Dream-v0-Instruct-7B
+local_dir: models/DREAM-7B
+trust_remote_code: true
+dtype: bfloat16
+attention_backend: sdpa
+use_chat_template: true
+padding_side: left
+max_input_tokens: 2048
+minimum_free_memory_gib: 20

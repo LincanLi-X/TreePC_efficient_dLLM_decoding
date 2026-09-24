@@ -1,0 +1,27 @@
+schema_version: 1
+seed: 6060
+notice: internal smoke test only; benchmark test rows are repurposed and results are not standard claims
+shared_pc_and_head_splits: true
+
+teacher:
+  steps: 128
+  states_per_example: 4
+  candidate_size: 8
+  top_k: 16
+
+pc_lora:
+  splits:
+    gsm8k: {train: 8, validation: 2, test: 2}
+    humaneval: {train: 4, validation: 2, test: 2}
+  decoding_steps: [4, 16]
+
+heads:
+  parent_samples: 3
+  splits:
+    gsm8k: {train: 8, validation: 2, test: 2}
+    humaneval: {train: 4, validation: 2, test: 2}
+  decoding_steps: [4, 16]
+  candidate_size:
+    gsm8k: {4: 64, 16: 16}
+    humaneval: {4: 128, 16: 32}
+  top_k: 16

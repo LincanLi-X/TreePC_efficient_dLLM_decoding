@@ -1,0 +1,16 @@
+seed: 42
+algorithm: entropy
+temperature: 0.0
+top_p: null
+top_k: null
+alg_temp: 0.0
+batch_size: 1
+gsm8k:
+  sample_size: 20
+  parity_size: 5
+  max_new_tokens: 256
+humaneval:
+  sample_size: 10
+  parity_size: 5
+  max_new_tokens: 512
+  execution_timeout_seconds: 5

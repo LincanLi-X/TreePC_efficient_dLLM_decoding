@@ -1,0 +1,43 @@
+schema_version: 1
+profile: large_v2
+seed: 5050
+notice: internal held-out experiment; the current source files are repurposed benchmark test rows
+shared_pc_and_head_splits: false
+
+teacher:
+  steps: 256
+  states_per_example: 4
+  candidate_size: 8
+  top_k: 16
+
+pc_lora:
+  splits:
+    gsm8k: {train: 800, validation: 160, test: 200}
+    humaneval: {train: 96, validation: 24, test: 32}
+  decoding_steps: [8, 16, 32, 64]
+
+heads:
+  parent_samples: 3
+  splits:
+    gsm8k: {train: 500, validation: 100, test: 200}
+    humaneval: {train: 64, validation: 16, test: 32}
+  decoding_steps: [8, 16, 32, 64]
+  candidate_size:
+    gsm8k: {8: 32, 16: 16, 32: 8, 64: 4}
+    humaneval: {8: 64, 16: 32, 32: 16, 64: 8}
+  top_k: 16
+
+rq1:
+  teacher_steps: 256
+  student_steps: [8, 16, 32, 64]
+  state_source: pc_lora_on_policy_mid_state
+  recall_k: 16
+  ece_bins: 15
+
+rq2:
+  partition: head_test
+  student_steps: [8, 16, 32, 64]
+  grouping: [dataset, student_nfe]
+  rank_metrics: [spearman, kendall_tau_b]
+  tree_baselines: [learned, local, hidden_cosine, random, oracle]
+  tree_metrics: [mst_edge_overlap, oracle_weight_capture]

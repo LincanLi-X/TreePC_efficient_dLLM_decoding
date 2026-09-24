@@ -1,0 +1,9 @@
+teacher_steps: 128
+states_per_example: 4
+candidate_size: 8
+top_k: 16
+eps: 0.001
+algorithm: entropy
+temperature: 0.0
+seed: 2026
+diagnostic_only: true

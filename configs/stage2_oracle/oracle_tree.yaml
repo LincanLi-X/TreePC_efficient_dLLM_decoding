@@ -1,0 +1,6 @@
+student_steps: 16
+root: highest_confidence
+edge_source: oracle_mc_kl
+correction: online_teacher_conditional
+same_candidate_set_as_independent: true
+teacher_online_efficiency_claim: false

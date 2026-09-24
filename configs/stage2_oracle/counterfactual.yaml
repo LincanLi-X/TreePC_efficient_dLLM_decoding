@@ -1,0 +1,5 @@
+parent_samples: 3
+anchors: all_candidates
+target_type: mc_kl_q_conditional_to_q_base
+top_k: 16
+symmetrize: mean_both_directions

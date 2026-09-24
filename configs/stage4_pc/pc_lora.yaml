@@ -1,0 +1,11 @@
+rank: 8
+alpha: 16
+dropout: 0.05
+target_modules: [q_proj, k_proj, v_proj, o_proj]
+epochs: 1
+learning_rate: 0.0001
+weight_decay: 0.0
+gradient_accumulation: 4
+seed: 4040
+teacher_steps: 128
+training_mode: offline_nested_mask

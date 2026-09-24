@@ -1,0 +1,11 @@
+steps: [4, 8, 16, 32]
+# Candidate commit scheduler; Tree root always uses posterior max-token probability.
+algorithm: entropy
+temperature: 0.0
+top_k: 16
+min_tree_nodes: 2
+dependency_threshold: 0.0
+max_new_tokens:
+  gsm8k: 256
+  humaneval: 512
+seed: 3030

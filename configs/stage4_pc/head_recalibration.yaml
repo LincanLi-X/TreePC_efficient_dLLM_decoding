@@ -1,0 +1,6 @@
+learning_rate: 0.00005
+epochs: 3
+mix_base_cache_fraction: 0.5
+shift_hidden_cosine_threshold: 0.98
+shift_posterior_kl_threshold: 0.05
+seed: 4041

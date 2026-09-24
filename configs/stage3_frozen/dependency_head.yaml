@@ -1,0 +1,14 @@
+hidden_size: 3584
+projection_size: 128
+timestep_size: 16
+relative_position_size: 32
+max_relative_position: 512
+pair_hidden_size: 256
+pair_chunk_size: 4096
+epochs: 60
+batch_size: 32
+learning_rate: 0.0003
+weight_decay: 0.0001
+ranking_weight: 0.25
+symmetry_weight: 0.01
+seed: 3030
