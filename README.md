@@ -60,53 +60,50 @@ TreePC_Code/
 │   ├── slurm_train_smoke.sh         # Generic one-GPU Slurm job template
 │   └── slurm_large_v2.sh            # Generic four-GPU Slurm job template
 ├── src/treepc/
-│   ├── types.py                     # Shared dataclasses and trace/result types
-│   ├── data/
-│   │   ├── datasets.py              # Dataset loading and deterministic split manifests
-│   │   ├── trajectory.py            # Teacher trajectory cache representation
-│   │   ├── onpolicy.py              # Student on-policy state representation
-│   │   ├── counterfactual.py        # Counterfactual label construction
-│   │   ├── pc_cache.py              # PC-LoRA supervision cache construction
-│   │   ├── cache_schema.py          # Cache schema validation
-│   │   └── cache_dataset.py         # PyTorch datasets over cached supervision
-│   ├── dream/
-│   │   ├── loader.py                # Local Dream checkpoint loading
-│   │   ├── adapter.py               # Unified Dream forward/tokenization adapter
-│   │   ├── generation.py            # Independent diffusion decoding and trace capture
-│   │   └── alignment.py             # Teacher/student state alignment
-│   ├── graph/
-│   │   ├── chow_liu.py              # Maximum-spanning dependency tree construction
-│   │   └── orientation.py           # Tree rooting and parent/child orientation
-│   ├── posterior/
-│   │   ├── consistency.py           # Tree posterior-consistency updates
-│   │   ├── divergences.py           # Distribution divergence utilities
-│   │   └── topk_support.py          # Top-k posterior support operations
-│   ├── models/
-│   │   ├── pc_lora.py               # LoRA attachment and PC model helpers
-│   │   ├── dependency_head.py       # Pairwise dependency scoring head
-│   │   ├── correction_head.py       # Conditional token correction head
-│   │   └── treepc_bundle.py         # Checkpoint bundle loading
-│   ├── decoding/
-│   │   ├── learned_treepc.py        # Learned TreePC decoder
-│   │   └── oracle_treepc.py         # Oracle/diagnostic TreePC decoder
-│   ├── training/
-│   │   ├── pc_trainer.py            # PC-LoRA training loop
-│   │   ├── dependency_trainer.py    # Dependency-head training loop
-│   │   ├── correction_trainer.py    # Correction-head training loop
-│   │   └── losses.py                # Training objectives
-│   ├── evaluation/
-│   │   ├── task_metrics.py          # GSM8K and HumanEval task metrics
-│   │   ├── humaneval.py             # Isolated HumanEval execution helper
-│   │   ├── oracle_metrics.py        # Oracle diagnostic metrics
-│   │   ├── rq1.py                   # RQ1 calibration/recall metrics
-│   │   └── statistics.py            # Aggregation and confidence intervals
-│   └── utils/
-│       ├── environment.py           # Runtime/environment capture
-│       ├── io.py                    # Atomic JSON/JSONL and hashing helpers
-│       └── seed.py                  # Reproducible RNG initialization
-└── tests/
-    ├── unit/                        # CPU tests for graph, posterior, heads, splits, and metrics
-    └── integration/                 # Opt-in CUDA/model generation tests
+    ├── types.py                     # Shared dataclasses and trace/result types
+    ├── data/
+    │   ├── datasets.py              # Dataset loading and deterministic split manifests
+    │   ├── trajectory.py            # Teacher trajectory cache representation
+    │   ├── onpolicy.py              # Student on-policy state representation
+    │   ├── counterfactual.py        # Counterfactual label construction
+    │   ├── pc_cache.py              # PC-LoRA supervision cache construction
+    │   ├── cache_schema.py          # Cache schema validation
+    │   └── cache_dataset.py         # PyTorch datasets over cached supervision
+    ├── dream/
+    │   ├── loader.py                # Local Dream checkpoint loading
+    │   ├── adapter.py               # Unified Dream forward/tokenization adapter
+    │   ├── generation.py            # Independent diffusion decoding and trace capture
+    │   └── alignment.py             # Teacher/student state alignment
+    ├── graph/
+    │   ├── chow_liu.py              # Maximum-spanning dependency tree construction
+    │   └── orientation.py           # Tree rooting and parent/child orientation
+    ├── posterior/
+    │   ├── consistency.py           # Tree posterior-consistency updates
+    │   ├── divergences.py           # Distribution divergence utilities
+    │   └── topk_support.py          # Top-k posterior support operations
+    ├── models/
+    │   ├── pc_lora.py               # LoRA attachment and PC model helpers
+    │   ├── dependency_head.py       # Pairwise dependency scoring head
+    │   ├── correction_head.py       # Conditional token correction head
+    │   └── treepc_bundle.py         # Checkpoint bundle loading
+    ├── decoding/
+    │   ├── learned_treepc.py        # Learned TreePC decoder
+    │   └── oracle_treepc.py         # Oracle/diagnostic TreePC decoder
+    ├── training/
+    │   ├── pc_trainer.py            # PC-LoRA training loop
+    │   ├── dependency_trainer.py    # Dependency-head training loop
+    │   ├── correction_trainer.py    # Correction-head training loop
+    │   └── losses.py                # Training objectives
+    ├── evaluation/
+    │   ├── task_metrics.py          # GSM8K and HumanEval task metrics
+    │   ├── humaneval.py             # Isolated HumanEval execution helper
+    │   ├── oracle_metrics.py        # Oracle diagnostic metrics
+    │   ├── rq1.py                   # RQ1 calibration/recall metrics
+    │   └── statistics.py            # Aggregation and confidence intervals
+    └── utils/
+        ├── environment.py           # Runtime/environment capture
+        ├── io.py                    # Atomic JSON/JSONL and hashing helpers
+        └── seed.py                  # Reproducible RNG initialization
 ```
 
 Empty `__init__.py` files establish the Python packages and are omitted from the annotations above.
