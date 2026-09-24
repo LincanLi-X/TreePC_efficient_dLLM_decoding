@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "treepc"
+version = "0.5.0"
+description = "Posterior-Consistency Dream decoding with learned dependency and correction heads"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "torch>=2.5,<2.12",
+  "transformers==4.48.0",
+  "accelerate>=1.0,<2.0",
+  "peft==0.14.0",
+  "safetensors>=0.5,<0.6",
+  "PyYAML>=6.0,<7.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6", "networkx>=3.0"]
+assets = ["huggingface_hub>=0.28"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -m 'not model'"
+markers = [
+  "cuda: requires CUDA",
+  "model: loads external model weights and benchmark data",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
