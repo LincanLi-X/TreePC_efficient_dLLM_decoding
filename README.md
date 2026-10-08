@@ -1,8 +1,7 @@
-# TreePC
+# TreePC: Posterior-Consistent and Dependency Aware Decoding for Few-Step Diffusion Language Models
 
-Anonymous review code for posterior-consistent, dependency-aware diffusion decoding.
-Only source, configurations and tests are included: **no weights, datasets, training
-caches, rollout buffers, checkpoints or results are bundled**.
+> Official code repository for TreePC: Posterior-Consistent and Dependency Aware Decoding for Few-Step Diffusion Language Models
+
 
 ## Method and experiment coverage
 
