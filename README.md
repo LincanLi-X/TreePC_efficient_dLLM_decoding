@@ -254,3 +254,15 @@ CUDA_VISIBLE_DEVICES=<idle-lab-gpu> TREEPC_TEST_MODEL_ROOT=/external/checkpoint/
 
 Real-model tests write only to pytest's external temporary directory. Full-scale training
 and paper-score reproduction are not established by these small tests.
+
+
+## Citation
+
+```
+@inproceedings{anonymous2026treepc,
+  title     = {TreePC: Posterior-Consistent and Dependency Aware Decoding for Few-Step Diffusion Language Models},
+  author    = {Anonymous},
+  booktitle = {Under Review},
+  year      = {2026}
+}
+```
