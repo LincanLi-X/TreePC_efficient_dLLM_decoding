@@ -61,7 +61,9 @@ def main() -> None:
         "pair_hidden_size",
         "pair_chunk_size",
     }
-    model = DependencyHead(**{key: config[key] for key in model_keys})
+    model_config = {key: config[key] for key in model_keys}
+    model_config["hidden_size"] = train_records[0]["aligned_hidden"].shape[-1]
+    model = DependencyHead(**model_config)
     report = train_dependency_head(
         model,
         DependencyCacheDataset(train_records),

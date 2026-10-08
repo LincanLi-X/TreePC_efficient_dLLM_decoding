@@ -10,7 +10,7 @@ from treepc.models.dependency_head import timestep_embedding
 
 
 class ConditionalCorrectionHead(nn.Module):
-    """Top-K gated low-rank conditional posterior correction."""
+    """Gated low-rank correction over cached support or the full vocabulary."""
 
     def __init__(
         self,
@@ -100,7 +100,7 @@ class ConditionalCorrectionHead(nn.Module):
         sequence_length: Tensor,
         timestep: Tensor,
         dependency_weight: Tensor,
-        token_ids: Tensor,
+        token_ids: Tensor | None,
         base_logits: Tensor,
         force_gate_zero: bool = False,
     ) -> tuple[Tensor, Tensor, Tensor]:
@@ -135,8 +135,12 @@ class ConditionalCorrectionHead(nn.Module):
             gate = torch.sigmoid(self.gate_mlp(gate_features)).squeeze(-1)
             if force_gate_zero:
                 gate = torch.zeros_like(gate)
-            candidate_embeddings = F.embedding(token_ids, self.output_embedding).float()
-            residual = torch.einsum("nkd,nd->nk", candidate_embeddings, delta_hidden)
+            if token_ids is None:
+                # Matrix multiplication avoids allocating [children, vocab, hidden].
+                residual = F.linear(delta_hidden, self.output_embedding)
+            else:
+                candidate_embeddings = F.embedding(token_ids, self.output_embedding).float()
+                residual = torch.einsum("nkd,nd->nk", candidate_embeddings, delta_hidden)
             residual = residual / math.sqrt(self.hidden_size)
             effective_gate = self.global_scale.float() * gate
             effective_correction = effective_gate.unsqueeze(-1) * residual

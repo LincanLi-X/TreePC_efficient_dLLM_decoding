@@ -44,9 +44,7 @@ def validate_model(model_dir: Path) -> dict[str, Any]:
         "path": str(model_dir),
         "hidden_size": int(config["hidden_size"]),
         "index_sha256": sha256_file(index_path),
-        "shards": [
-            {"name": path.name, "bytes": path.stat().st_size} for path in shard_paths
-        ],
+        "shards": [{"name": path.name, "bytes": path.stat().st_size} for path in shard_paths],
         "total_shard_bytes": sum(path.stat().st_size for path in shard_paths),
     }
 
@@ -83,9 +81,7 @@ def validate_checkpoints(checkpoint_dir: Path) -> dict[str, Any]:
         "correction_hidden_size": correction["config"]["hidden_size"],
         "global_scale": global_scale,
         "legacy_global_scale_fallback": legacy_scale_fallback,
-        "dependency_threshold": correction.get("tree_gate_calibration", {}).get(
-            "dependency_threshold"
-        ),
+        "dependency_threshold": correction.get("tree_gate_calibration", {}).get("dependency_threshold"),
     }
 
 
@@ -163,11 +159,7 @@ def main() -> None:
         raise ValueError(f"Dream/checkpoint hidden-size mismatch: {sorted(hidden_sizes)}")
 
     report = {
-        "schema": (
-            "treepc.smoke_preflight.v1"
-            if checkpoints
-            else "treepc.train_smoke_preflight.v1"
-        ),
+        "schema": ("treepc.smoke_preflight.v1" if checkpoints else "treepc.train_smoke_preflight.v1"),
         "mode": "pretrained_inference" if checkpoints else "from_scratch_training",
         "passed": True,
         "python_packages": package_versions(),

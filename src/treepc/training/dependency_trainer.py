@@ -9,6 +9,7 @@ import torch
 from torch import Tensor
 from torch.utils.data import DataLoader, Dataset
 
+from treepc.data.cache_dataset import DependencyBatchSampler
 from treepc.graph.chow_liu import maximum_spanning_tree, tree_weight
 from treepc.models.dependency_head import DependencyHead
 from treepc.training.losses import dependency_loss
@@ -189,8 +190,13 @@ def train_dependency_head(
     seed: int = 3030,
 ) -> dict[str, Any]:
     generator = torch.Generator().manual_seed(seed)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, generator=generator)
-    validation_loader = DataLoader(validation_dataset, batch_size=batch_size, shuffle=False)
+    train_loader = DataLoader(
+        train_dataset,
+        batch_sampler=DependencyBatchSampler(train_dataset, batch_size, shuffle=True, generator=generator),
+    )
+    validation_loader = DataLoader(
+        validation_dataset, batch_sampler=DependencyBatchSampler(validation_dataset, batch_size)
+    )
     model.to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)

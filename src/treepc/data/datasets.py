@@ -12,6 +12,8 @@ DEFAULT_DATA_ROOT = PROJECT_ROOT / "data/processed/track1_general"
 DATASET_FILES = {
     "gsm8k": Path("gsm8k/samples.jsonl"),
     "humaneval": Path("humaneval/samples.jsonl"),
+    "math500": Path("math500/samples.jsonl"),
+    "mbpp": Path("mbpp/samples.jsonl"),
 }
 
 
@@ -47,6 +49,16 @@ class BenchmarkDataset:
 
     def prompt(self, index: int) -> str:
         row = self.rows[index]
+        if self.name == "math500":
+            return (
+                "Solve the problem. Show reasoning and put the final answer in \\boxed{}.\n\n"
+                + row["problem"]
+            )
+        if self.name == "mbpp":
+            return (
+                f"Write Python code solving this task. Return code only.\n{row['text']}\nTests:\n"
+                + "\n".join(row["test_list"])
+            )
         if self.name == "gsm8k":
             return (
                 "Solve this grade-school math problem. Show concise reasoning and end with exactly one line "
@@ -246,6 +258,7 @@ def build_large_scale_manifest(
     head_sizes: dict[str, dict[str, int]] | None = None,
     data_root: str | Path | None = None,
     require_identical_splits: bool = False,
+    protocol: str = "internal",
 ) -> dict[str, Any]:
     """Build the reproducible large-v2 split used by the remote run.
 
@@ -254,13 +267,16 @@ def build_large_scale_manifest(
     """
     pc_sizes = pc_sizes or LARGE_SCALE_PC_SIZES
     head_sizes = head_sizes or LARGE_SCALE_HEAD_SIZES
+    if protocol not in {"internal", "standard"}:
+        raise ValueError("protocol must be internal or standard")
     rng = random.Random(seed)
     result: dict[str, Any] = {
         "schema_version": 4,
         "seed": seed,
         "purpose": "large_v2_internal_treepc_training",
         "source_split": "benchmark_test_repurposed_internal_only",
-        "standard_benchmark_claim_allowed": False,
+        "standard_benchmark_claim_allowed": protocol == "standard",
+        "protocol": protocol,
         "split_policy": (
             "shared_pc_and_head_splits"
             if require_identical_splits
@@ -268,8 +284,10 @@ def build_large_scale_manifest(
         ),
         "datasets": {},
     }
-    for name in ("gsm8k", "humaneval"):
+    for name in pc_sizes:
         dataset = BenchmarkDataset(name, data_root=data_root)
+        if len({row["sample_id"] for row in dataset.rows}) != len(dataset):
+            raise ValueError(f"{name}: sample_id must be unique across training and test sources")
         pc = pc_sizes[name]
         heads = head_sizes[name]
         if require_identical_splits and heads != pc:
@@ -281,13 +299,34 @@ def build_large_scale_manifest(
         if requested > len(dataset):
             raise ValueError(f"Requested {requested} {name} rows but source has {len(dataset)}")
 
-        selected = rng.sample(range(len(dataset)), requested)
-        boundaries = (pc["train"], pc["train"] + pc["validation"])
-        pc_indices = {
-            "train": sorted(selected[: boundaries[0]]),
-            "validation": sorted(selected[boundaries[0] : boundaries[1]]),
-            "test": sorted(selected[boundaries[1] :]),
-        }
+        if protocol == "standard":
+            train_pool = [i for i, row in enumerate(dataset.rows) if row.get("source_split") == "train"]
+            test_pool = [i for i, row in enumerate(dataset.rows) if row.get("source_split") == "test"]
+            if len(train_pool) < pc["train"] + pc["validation"] or len(test_pool) < pc["test"]:
+                raise ValueError(
+                    f"{name}: standard mode needs separately tagged training sources and test rows"
+                )
+            training = rng.sample(train_pool, pc["train"] + pc["validation"])
+            pc_indices = {
+                "train": sorted(training[: pc["train"]]),
+                "validation": sorted(training[pc["train"] :]),
+                "test": sorted(rng.sample(test_pool, pc["test"])),
+            }
+        else:
+            selected = rng.sample(range(len(dataset)), requested)
+            boundaries = (pc["train"], pc["train"] + pc["validation"])
+            pc_indices = {
+                "train": sorted(selected[: boundaries[0]]),
+                "validation": sorted(selected[boundaries[0] : boundaries[1]]),
+                "test": sorted(selected[boundaries[1] :]),
+            }
+        prompt_sets = {split: {dataset.prompt(i) for i in indices} for split, indices in pc_indices.items()}
+        if (
+            prompt_sets["train"] & prompt_sets["validation"]
+            or prompt_sets["train"] & prompt_sets["test"]
+            or prompt_sets["validation"] & prompt_sets["test"]
+        ):
+            raise ValueError(f"{name}: duplicate prompts cross split boundaries")
         if require_identical_splits:
             head_indices = {split: list(indices) for split, indices in pc_indices.items()}
         else:
@@ -299,15 +338,17 @@ def build_large_scale_manifest(
             "source_path": str(dataset.path),
             "source_sha256": hashlib.sha256(dataset.path.read_bytes()).hexdigest(),
             "source_size": len(dataset),
+            "evaluation_scope": "official_test_subset" if protocol == "standard" else "internal_heldout",
         }
         for family, indices_by_split in (("pc", pc_indices), ("head", head_indices)):
             for split, indices in indices_by_split.items():
                 entry[f"{family}_{split}_indices"] = indices
-                entry[f"{family}_{split}_sample_ids"] = [
-                    dataset[index]["sample_id"] for index in indices
-                ]
+                entry[f"{family}_{split}_sample_ids"] = [dataset[index]["sample_id"] for index in indices]
         result["datasets"][name] = entry
 
+    if protocol == "standard":
+        result["purpose"] = "separate_source_standard_test_subset"
+        result["source_split"] = "separate_training_sources_and_official_test"
     validate_large_scale_manifest(result)
     canonical = json.dumps(result, sort_keys=True, separators=(",", ":")).encode()
     result["fingerprint"] = hashlib.sha256(canonical).hexdigest()
@@ -319,10 +360,7 @@ def validate_large_scale_manifest(manifest: dict[str, Any]) -> None:
         raise ValueError("Expected large-scale manifest schema_version=4")
     for name, entry in manifest.get("datasets", {}).items():
         pc = {split: set(entry[f"pc_{split}_indices"]) for split in ("train", "validation", "test")}
-        heads = {
-            split: set(entry[f"head_{split}_indices"])
-            for split in ("train", "validation", "test")
-        }
+        heads = {split: set(entry[f"head_{split}_indices"]) for split in ("train", "validation", "test")}
         if pc["train"] & pc["validation"] or pc["train"] & pc["test"] or pc["validation"] & pc["test"]:
             raise ValueError(f"{name}: PC-LoRA splits overlap")
         for split in ("train", "validation", "test"):

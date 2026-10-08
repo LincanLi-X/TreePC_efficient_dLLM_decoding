@@ -15,6 +15,8 @@ from treepc.posterior.consistency import posterior_consistency_kl
 
 def pc_student_logits(student: PeftModel, input_ids: Tensor, anchor_positions: Tensor) -> Tensor:
     dream = student.get_base_model()
+    if getattr(dream.config, "model_type", "") == "llada":
+        return student(input_ids=input_ids, use_cache=False).logits[0, anchor_positions]
     output = dream.model(
         input_ids=input_ids,
         attention_mask="full",
@@ -56,9 +58,9 @@ def evaluate_pc_student(
         agreements += int(logits.argmax(-1).eq(teacher_top1).sum().item())
         targets += int(anchors.numel())
         final_targets = batch["teacher_final_tokens"][0].to(device)
-        final_nll.append(-torch.log_softmax(logits.float(), -1).gather(
-            -1, final_targets.unsqueeze(-1)
-        ).squeeze(-1).cpu())
+        final_nll.append(
+            -torch.log_softmax(logits.float(), -1).gather(-1, final_targets.unsqueeze(-1)).squeeze(-1).cpu()
+        )
     values = torch.cat(kls)
     return {
         "pc_kl": float(values.mean().item()),
@@ -88,10 +90,10 @@ def train_pc_student(
     optimizer = torch.optim.AdamW(trainable, lr=learning_rate, weight_decay=weight_decay)
     total_updates = max(1, math.ceil(len(loader) * epochs / gradient_accumulation))
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_updates)
-    student.gradient_checkpointing_enable(
-        gradient_checkpointing_kwargs={"use_reentrant": False}
-    )
-    student.enable_input_require_grads()
+    # Lazy import also preserves the historical offline entry point for LLaDA.
+    from treepc.training.onpolicy_pc import enable_checkpointing
+
+    enable_checkpointing(student)
     best_kl = math.inf
     best_metrics: dict[str, float] = {}
     history: list[dict[str, float]] = []
@@ -122,8 +124,7 @@ def train_pc_student(
                 optimizer.zero_grad(set_to_none=True)
             if step % 12 == 0 or step == len(loader):
                 print(
-                    f"pc epoch={epoch}/{epochs} state={step}/{len(loader)} "
-                    f"loss={running / step:.5f}",
+                    f"pc epoch={epoch}/{epochs} state={step}/{len(loader)} " f"loss={running / step:.5f}",
                     flush=True,
                 )
         metrics = evaluate_pc_student(student, validation_dataset, device)

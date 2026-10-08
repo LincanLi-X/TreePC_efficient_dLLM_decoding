@@ -60,6 +60,13 @@ def sample_tokens(
 
 
 class DreamAdapter:
+    def __new__(cls, loaded: LoadedDream):
+        if cls is DreamAdapter and loaded.metadata.get("backbone") == "llada":
+            from treepc.backbones.llada import LLaDAAdapter
+
+            return object.__new__(LLaDAAdapter)
+        return object.__new__(cls)
+
     def __init__(self, loaded: LoadedDream) -> None:
         self.model = loaded.model
         self.tokenizer = loaded.tokenizer
@@ -67,6 +74,7 @@ class DreamAdapter:
         self.dtype = loaded.dtype
         self.metadata = loaded.metadata
         self.mask_token_id = int(self.model.config.mask_token_id)
+        self.forward_count = 0
 
     def render_prompt(self, prompt: str) -> str:
         return self.tokenizer.apply_chat_template(
@@ -117,7 +125,9 @@ class DreamAdapter:
             return pair_mask, tok_idx
         return "full", None
 
+    @torch.autocast(device_type="cuda", dtype=torch.bfloat16)
     def forward_state(self, state: DreamState, need_hidden: bool = False) -> DreamStepOutput:
+        self.forward_count += 1
         output = self.model(
             input_ids=state.input_ids,
             attention_mask=state.attention_mask,
@@ -156,6 +166,9 @@ class DreamAdapter:
     def compute_commit_budget(masked: Tensor, t: Tensor, s: Tensor, is_last: bool) -> int:
         num_mask_token = masked.sum() / masked.shape[0]
         return int(num_mask_token) if is_last else int(num_mask_token * (1 - s / t))
+
+    def sample_corrected(self, logits, temperature, top_p, top_k):
+        return sample_tokens(logits, temperature, top_p, top_k, "origin")
 
     def decode(self, sequences: Tensor, prompt_length: int) -> list[str]:
         texts: list[str] = []

@@ -18,9 +18,7 @@ def main() -> None:
         raise RuntimeError(f"Expected at least {args.min_gpus} visible CUDA GPU(s)")
     usable = [gpu for gpu in report["gpus"] if gpu["free_gib"] >= args.min_free_memory_gib]
     if len(usable) < args.min_gpus:
-        raise RuntimeError(
-            f"Only {len(usable)} GPU(s) have at least {args.min_free_memory_gib:.1f} GiB free"
-        )
+        raise RuntimeError(f"Only {len(usable)} GPU(s) have at least {args.min_free_memory_gib:.1f} GiB free")
     write_json(args.output, report)
     print(f"environment recorded: {args.output}")
 

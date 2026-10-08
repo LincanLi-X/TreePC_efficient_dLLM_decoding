@@ -1,0 +1,37 @@
+schema: treepc.paper.v1
+seed: 5050
+protocol: internal
+backbones:
+  dream: {model_dir: models/DREAM-7B}
+  llada: {model_dir: models/LLaDA-8B}
+datasets: [gsm8k, humaneval, math500, mbpp]
+teacher_steps: [256, 512]
+student_steps: [4, 8, 16, 32, 48, 64, 80, 96, 112]
+# Same generation length for both teacher budgets and every competing method.
+max_new_tokens: 512
+repeats: 3
+warmup: 1
+pc_config: configs/large_v2/pc_lora.yaml
+dependency_config: configs/large_v2/dependency_head.yaml
+correction_config: configs/large_v2/correction_head.yaml
+pc_splits:
+  gsm8k: {train: 800, validation: 160, test: 200}
+  humaneval: {train: 96, validation: 24, test: 32}
+  math500: {train: 200, validation: 40, test: 200}
+  mbpp: {train: 200, validation: 40, test: 200}
+head_splits:
+  gsm8k: {train: 500, validation: 100, test: 200}
+  humaneval: {train: 64, validation: 16, test: 32}
+  math500: {train: 128, validation: 32, test: 200}
+  mbpp: {train: 128, validation: 32, test: 200}
+external:
+  fast_dllm:
+    checkout: external/Fast-dLLM
+    backbones: [dream, llada]
+    threshold: 0.9
+  cd4lm:
+    checkout: external/CDLM
+    backbones: [llada]
+    # Explicitly replace this with your DSCD checkpoint, NOT the TreePC LoRA adapter.
+    model_dir: models/CD4LM-LLaDA-8B
+    threshold: 0.95

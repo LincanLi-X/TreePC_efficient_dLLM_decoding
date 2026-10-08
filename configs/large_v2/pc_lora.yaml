@@ -8,4 +8,12 @@ weight_decay: 0.0
 gradient_accumulation: 4
 seed: 5050
 teacher_steps: 256
-training_mode: offline_nested_mask
+training_mode: mixed_budget_on_policy
+total_updates: 1000
+warmup_fraction: 0.2
+student_budgets: [4, 8, 16, 32, 48, 64, 80, 96, 112]
+rollout_buffer_size: 16
+rollout_refresh_interval: 20
+validation_interval: 20
+max_anchors: 64
+top_k: 16

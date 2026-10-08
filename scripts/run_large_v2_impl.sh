@@ -12,9 +12,10 @@ set -euo pipefail
 treepc_action="${1:-all}"
 : "${TREEPC_DATA_ROOT:?Set TREEPC_DATA_ROOT to the directory containing gsm8k/ and humaneval/.}"
 : "${TREEPC_MODEL_DIR:?Set TREEPC_MODEL_DIR to the local Dream-7B-Instruct checkpoint.}"
+: "${TREEPC_RUN_DIR:?Set TREEPC_RUN_DIR to an external artifacts directory.}"
 
 treepc_project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-treepc_run_dir="${TREEPC_RUN_DIR:-${treepc_project_dir}/results/large_v2}"
+treepc_run_dir="${TREEPC_RUN_DIR}"
 treepc_python="${TREEPC_PYTHON:-python}"
 treepc_gpu_csv="${TREEPC_GPU_IDS:-0}"
 IFS=',' read -r -a treepc_gpus <<< "${treepc_gpu_csv}"
@@ -141,7 +142,7 @@ treepc_train_pc() {
       --train-caches "${treepc_run_dir}/cache/pc/gsm8k_train.pt" "${treepc_run_dir}/cache/pc/humaneval_train.pt" \
       --validation-caches "${treepc_run_dir}/cache/pc/gsm8k_validation.pt" "${treepc_run_dir}/cache/pc/humaneval_validation.pt" \
       --test-caches "${treepc_run_dir}/cache/pc/gsm8k_test.pt" "${treepc_run_dir}/cache/pc/humaneval_test.pt" \
-      --config "${treepc_pc_config}" --device cuda:0 \
+      --config "${treepc_pc_config}" --device cuda:0 --manifest "${treepc_manifest}" \
       --adapter-dir "${treepc_pc_adapter}" --report "${treepc_run_dir}/reports/pc_lora.json" \
       >"${treepc_run_dir}/logs/train_pc_lora.log" 2>&1
   fi

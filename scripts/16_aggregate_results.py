@@ -31,32 +31,16 @@ def summarize(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "sample_size": len(values),
                 "accuracy": statistics.mean(row["passed"] for row in values),
                 "latency_mean_s": statistics.mean(row["latency_s"] for row in values),
-                "latency_median_s": statistics.median(
-                    row["latency_s"] for row in values
-                ),
-                "output_tokens_per_s_mean": statistics.mean(
-                    row["output_tokens_per_s"] for row in values
-                ),
-                "peak_gpu_memory_mib_max": max(
-                    row["peak_gpu_memory_mib"] for row in values
-                ),
-                "dependency_head_mean_s": statistics.mean(
-                    row["dependency_head_s"] for row in values
-                ),
+                "latency_median_s": statistics.median(row["latency_s"] for row in values),
+                "output_tokens_per_s_mean": statistics.mean(row["output_tokens_per_s"] for row in values),
+                "peak_gpu_memory_mib_max": max(row["peak_gpu_memory_mib"] for row in values),
+                "dependency_head_mean_s": statistics.mean(row["dependency_head_s"] for row in values),
                 "mst_mean_s": statistics.mean(row["mst_s"] for row in values),
-                "correction_head_mean_s": statistics.mean(
-                    row["correction_head_s"] for row in values
-                ),
-                "corrected_token_flips_mean": statistics.mean(
-                    row["corrected_token_flips"] for row in values
-                ),
-                "candidate_size_mean": statistics.mean(
-                    row["candidate_size_mean"] for row in values
-                ),
+                "correction_head_mean_s": statistics.mean(row["correction_head_s"] for row in values),
+                "corrected_token_flips_mean": statistics.mean(row["corrected_token_flips"] for row in values),
+                "candidate_size_mean": statistics.mean(row["candidate_size_mean"] for row in values),
                 "tree_depth_max": max(row["tree_depth_max"] for row in values),
-                "tree_used_rate_mean": statistics.mean(
-                    row["tree_used_rate"] for row in values
-                ),
+                "tree_used_rate_mean": statistics.mean(row["tree_used_rate"] for row in values),
                 "dream_nfe_exact": all(row["dream_nfe"] == steps for row in values),
             }
         )
@@ -81,11 +65,7 @@ def main() -> None:
     for value, limit in zip(args.inputs, limits):
         with Path(value).open(encoding="utf-8") as handle:
             selected = (line for line in handle if line.strip())
-            rows.extend(
-                json.loads(line)
-                for index, line in enumerate(selected)
-                if limit < 0 or index < limit
-            )
+            rows.extend(json.loads(line) for index, line in enumerate(selected) if limit < 0 or index < limit)
     summary_rows = summarize(rows)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)

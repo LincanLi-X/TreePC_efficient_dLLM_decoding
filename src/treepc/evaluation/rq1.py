@@ -44,15 +44,11 @@ def posterior_metric_vectors(
         "teacher_token_recall": student_topk.eq(teacher_top1[:, None]).any(dim=-1).float(),
         "student_entropy": -(probabilities * log_probs).sum(dim=-1),
         "student_top1_confidence": student_top1_confidence,
-        "teacher_top1_probability": probabilities.gather(
-            -1, teacher_top1[:, None]
-        ).squeeze(-1),
+        "teacher_top1_probability": probabilities.gather(-1, teacher_top1[:, None]).squeeze(-1),
     }
 
 
-def expected_calibration_error(
-    confidence: Tensor, correctness: Tensor, *, bins: int = 15
-) -> float:
+def expected_calibration_error(confidence: Tensor, correctness: Tensor, *, bins: int = 15) -> float:
     """ECE where correctness means agreement with the Teacher top-1 token."""
     if bins <= 0:
         raise ValueError("bins must be positive")

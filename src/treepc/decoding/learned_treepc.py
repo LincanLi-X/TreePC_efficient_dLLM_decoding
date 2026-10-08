@@ -5,7 +5,7 @@ from typing import Any
 
 import torch
 
-from treepc.dream.adapter import DreamAdapter, max_token_probability, sample_tokens
+from treepc.dream.adapter import DreamAdapter, max_token_probability
 from treepc.dream.generation import custom_independent_generate
 from treepc.graph.chow_liu import maximum_spanning_tree
 from treepc.graph.orientation import orient_tree
@@ -34,7 +34,9 @@ def learned_treepc_generate(
     min_tree_nodes: int = 2,
     tree_gate: bool = True,
     edge_source: str = "learned",
+    profile_aux: bool = True,
 ) -> tuple[GenerationResult, list[dict[str, Any]], dict[str, float]]:
+    """Correct full-vocabulary logits; legacy correction_top_k is intentionally ignored."""
     if not tree_gate:
         result = custom_independent_generate(
             adapter,
@@ -47,12 +49,16 @@ def learned_treepc_generate(
             top_k=top_k,
             alg_temp=alg_temp,
         )
-        return result, [], {
-            "dependency_head_s": 0.0,
-            "mst_s": 0.0,
-            "correction_head_s": 0.0,
-            "dream_forwards": float(steps),
-        }
+        return (
+            result,
+            [],
+            {
+                "dependency_head_s": 0.0,
+                "mst_s": 0.0,
+                "correction_head_s": 0.0,
+                "dream_forwards": float(steps),
+            },
+        )
     encoded = adapter.encode_prompt(prompt)
     state = adapter.make_initial_state(encoded, max_new_tokens, steps)
     timesteps = torch.linspace(1, 1e-3, steps + 1, device=adapter.device)
@@ -65,13 +71,9 @@ def learned_treepc_generate(
         state.timestep_t = timesteps[step]
         state.timestep_s = timesteps[step + 1]
         output = adapter.forward_state(state, need_hidden=True)
-        confidence, proposals = adapter.propose_tokens_and_confidence(
-            output, alg, temperature, top_p, top_k
-        )
+        confidence, proposals = adapter.propose_tokens_and_confidence(output, alg, temperature, top_p, top_k)
         mask = output.masked_positions
-        budget = adapter.compute_commit_budget(
-            mask, timesteps[step], timesteps[step + 1], step == steps - 1
-        )
+        budget = adapter.compute_commit_budget(mask, timesteps[step], timesteps[step + 1], step == steps - 1)
         if budget == 0:
             trace.append(
                 {
@@ -84,9 +86,7 @@ def learned_treepc_generate(
                 }
             )
             continue
-        full_confidence = torch.full_like(
-            state.input_ids, -torch.inf, dtype=output.aligned_logits.dtype
-        )
+        full_confidence = torch.full_like(state.input_ids, -torch.inf, dtype=confidence.dtype)
         full_confidence[mask] = confidence
         if alg_temp is None or alg_temp == 0:
             candidates = torch.topk(full_confidence, budget, dim=-1).indices[0]
@@ -104,7 +104,8 @@ def learned_treepc_generate(
         node_confidence = max_token_probability(base_logits)
         nodes = int(candidates.numel())
 
-        _synchronize(adapter.device)
+        if profile_aux:
+            _synchronize(adapter.device)
         section = time.perf_counter()
         if edge_source == "learned":
             weights = bundle.dependency_head(hidden, candidates, timesteps[step])
@@ -114,16 +115,18 @@ def learned_treepc_generate(
             weights.fill_diagonal_(0.0)
         else:
             raise ValueError(f"Unsupported edge source: {edge_source}")
-        _synchronize(adapter.device)
-        timings["dependency_head_s"] += time.perf_counter() - section
+        if profile_aux:
+            _synchronize(adapter.device)
+            timings["dependency_head_s"] += time.perf_counter() - section
 
         section = time.perf_counter()
         prim_parent, edge_weights = maximum_spanning_tree(weights)
         root = int(node_confidence.argmax().item())
         parent, depth = orient_tree(prim_parent, root)
         dependency_sum = float(edge_weights.sum().item())
-        _synchronize(adapter.device)
-        timings["mst_s"] += time.perf_counter() - section
+        if profile_aux:
+            _synchronize(adapter.device)
+            timings["mst_s"] += time.perf_counter() - section
 
         use_tree = nodes >= min_tree_nodes and dependency_sum >= bundle.dependency_threshold
         if not use_tree:
@@ -141,9 +144,6 @@ def learned_treepc_generate(
                 children = (depth == level).nonzero(as_tuple=False).flatten()
                 parents = parent[children]
                 child_logits = base_logits[children]
-                values, ids = torch.topk(
-                    child_logits, min(correction_top_k, child_logits.shape[-1]), dim=-1
-                )
                 corrected, gate, effective_correction = bundle.correction_head(
                     child_hidden=hidden[children],
                     parent_hidden=hidden[parents],
@@ -157,21 +157,19 @@ def learned_treepc_generate(
                     ),
                     timestep=timesteps[step].expand(children.numel()),
                     dependency_weight=weights[parents, children],
-                    token_ids=ids,
-                    base_logits=values,
+                    token_ids=None,
+                    base_logits=child_logits,
                 )
-                _, selected_index = sample_tokens(corrected, temperature, None, None, "origin")
-                selected = ids.gather(-1, selected_index.unsqueeze(-1)).squeeze(-1)
+                _, selected = adapter.sample_corrected(corrected, temperature, top_p, top_k)
                 chosen[children] = selected
                 corrected_flips += int(selected.ne(base_tokens[children]).sum().item())
                 gate_values.append(gate)
                 correction_norms.append(effective_correction.norm(dim=-1))
-            _synchronize(adapter.device)
-            timings["correction_head_s"] += time.perf_counter() - section
+            if profile_aux:
+                _synchronize(adapter.device)
+                timings["correction_head_s"] += time.perf_counter() - section
             mean_gate = float(torch.cat(gate_values).mean().item()) if gate_values else 0.0
-            mean_correction_l2 = (
-                float(torch.cat(correction_norms).mean().item()) if correction_norms else 0.0
-            )
+            mean_correction_l2 = float(torch.cat(correction_norms).mean().item()) if correction_norms else 0.0
         global_scale = bundle.correction_head.global_scale_value()
         state.input_ids[0, candidates] = chosen
         trace.append(

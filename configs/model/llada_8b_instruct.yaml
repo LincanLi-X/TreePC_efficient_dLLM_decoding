@@ -1,0 +1,4 @@
+backbone: llada
+repo_id: GSAI-ML/LLaDA-8B-Instruct
+local_dir: models/LLaDA-8B
+minimum_free_memory_gib: 24

@@ -1,298 +1,256 @@
 # TreePC
 
-This repository is the anonymous review artifact for TreePC, a posterior-consistency decoding
-method for diffusion language models. It contains the implementation, experiment configurations,
-multi-GPU orchestration, evaluation code, and tests. Model weights, benchmark records, generated
-caches, checkpoints, and result directories are deliberately excluded.
+Anonymous review code for posterior-consistent, dependency-aware diffusion decoding.
+Only source, configurations and tests are included: **no weights, datasets, training
+caches, rollout buffers, checkpoints or results are bundled**.
 
-The canonical checked-in experiment is `large_v2`: Dream-v0-Instruct-7B as the backbone, a
-256-step teacher, student NFEs in `{8, 16, 32, 64}`, and fixed prompt-level splits from GSM8K and
-HumanEval. The resource manifest also links LLaDA-8B-Instruct, MATH-500, and MBPP for the broader
-benchmark suite. This code snapshot does not yet include the LLaDA or MATH-500/MBPP adapters.
+## Method and experiment coverage
 
-## Repository layout
+- Dream-v0-Instruct-7B and LLaDA-8B-Instruct, retaining their native schedulers.
+- PC-LoRA: coarse/fine offline warm-up (20% of updates), followed by mixed-budget
+  current-student rollouts and periodic in-memory buffer refresh; frozen backbone.
+- Final-PC on-policy teacher counterfactuals with three sampled parent tokens.
+- Dependency regression/ranking/symmetry, maximum spanning tree and confidence-rooted BFS.
+- Oracle-tree correction warm-up followed by learned-tree adaptation. Both stages and
+  held-out evaluation use **predicted dependency strengths** as gate features.
+- Low-rank correction with local gate and learned global scale. Online corrections
+  cover the **full vocabulary** and retain the backbone's sampling controls.
+- One backbone forward per fixed-budget step, without online teacher calls.
+- Four task adapters and RQ1–RQ4 experiment/report drivers.
+
+The paper configuration covers two backbones, four tasks, teachers `{256,512}`,
+students `{4,8,16,32,48,64,80,96,112}`, and generation length 512 for all methods.
+The common length prevents empty late LLaDA teacher states when steps exceed length.
+Four GPUs shard examples; PC-LoRA and heads train on one GPU.
+Dependency batches group states with equal candidate counts, without padded graph edges.
+Historical smoke/large_v2 profiles remain available, but the new paper runner is recommended.
+Historical shell launchers also require an explicit external `TREEPC_RUN_DIR`.
+
+Fast-dLLM v1 bridges use its official Dream/LLaDA no-cache parallel implementation.
+The checked official CD4LM implementation provides LLaDA CAD, not a verified Dream port.
+That unsupported matrix cell is explicitly skipped, never substituted. Configure CD4LM's
+separate DSCD checkpoint; vanilla-checkpoint CAD must be labeled zero-shot CAD, not distilled CD4LM.
+These threshold-based external decoders use adaptive NFE: their actual counted forwards,
+not the nominal `steps` field, must be used for same-NFE claims. External revisions and
+source-file hashes are recorded in evaluation rows.
+
+**Code coverage is not proof of numerical reproduction.** See [VALIDATION.md](VALIDATION.md).
+
+## Repository map
 
 ```text
 TreePC_Code/
-├── README.md                         # Setup, resources, execution, and repository map
-├── pyproject.toml                    # Package metadata, dependencies, pytest, and Ruff settings
-├── requirements.txt                 # Exact runtime versions used for the released runs
-├── requirements-dev.txt             # Runtime plus pytest/Ruff/networkx
-├── .gitignore                       # Excludes weights, datasets, caches, results, and environments
-├── models/
-│   └── README.md                    # Official model links and expected local names
-├── data/
-│   └── README.md                    # Official dataset links and expected JSONL layout
+├── README.md                         # Resources, setup, workflow and protocol
+├── VALIDATION.md                     # Checks actually performed and their boundaries
+├── pyproject.toml                    # Dependencies, package and test/lint settings
+├── requirements*.txt                # Runtime, developer and evaluation dependencies
+├── models/README.md                  # Official checkpoint links and local names
+├── data/README.md                    # Official benchmark links and JSONL schemas
 ├── configs/
-│   ├── model/
-│   │   └── dream_7b_instruct.yaml   # Dream loading and memory settings
-│   ├── eval/
-│   │   └── quality.yaml             # Evaluation defaults
-│   ├── train_smoke/                 # Small end-to-end PC-LoRA/head training profile
-│   ├── large_v2/                    # Canonical large-v2 pipeline and training profiles
-│   ├── stage1_baseline/             # Independent Dream baselines at 4/8/16/32 NFE
-│   ├── stage2_oracle/               # Teacher trajectory and oracle diagnostics
-│   ├── stage3_frozen/               # Frozen-backbone head training/decoding profiles
-│   └── stage4_pc/                   # PC-LoRA and head-recalibration profiles
+│   ├── paper/experiments.yaml        # Full backbone/task/teacher/student matrix
+│   ├── model/                       # Dream/LLaDA resource profiles
+│   ├── large_v2/                    # PC and head training hyperparameters
+│   ├── train_smoke/                 # Small diagnostic profile
+│   └── stage*/                      # Historical baseline/oracle/frozen/PC profiles
 ├── scripts/
-│   ├── prepare_data.py              # Download/normalize official GSM8K and HumanEval files
-│   ├── 00_check_environment.py      # Record software/GPU environment and enforce resource checks
-│   ├── 01_smoke_dream.py            # Minimal Dream loading and generation smoke test
-│   ├── 02_reproduce_dream_baseline.py # Prepare/run/aggregate independent Dream baselines
-│   ├── 03_collect_teacher_trajectories.py # Build manifests and collect/merge teacher states
-│   ├── 04_build_counterfactual_cache.py # Create counterfactual posterior labels
-│   ├── 05_run_oracle_treepc.py      # Run cached/online oracle TreePC diagnostics
-│   ├── 06_train_dependency_head.py  # Train the dependency head
-│   ├── 07_train_correction_head.py  # Train the correction head
-│   ├── 08_decode_frozen_treepc.py   # Evaluate frozen-backbone learned TreePC
-│   ├── 09_train_pc_lora.py          # Build PC caches and train PC-LoRA
-│   ├── 10_recalibrate_heads.py      # Collect on-policy states and relabel/recalibrate heads
-│   ├── 12_run_main_experiments.py   # Run Independent, PC-only, Local, and Learned TreePC
-│   ├── 16_aggregate_results.py      # Aggregate sharded JSONL results into reports
-│   ├── 20_prepare_large_scale.py    # Create or verify the deterministic large-v2 manifest
-│   ├── 22_evaluate_heads.py         # Evaluate heads and produce the RQ2 report
-│   ├── 23_check_assets.py           # Validate model/data/software/GPU assets before a run
-│   ├── 24_validate_train_run.py     # Validate a completed smoke run and its artifacts
-│   ├── 25_evaluate_rq1.py           # Produce RQ1 posterior-consistency metrics
-│   ├── run_train_smoke.sh           # One-GPU end-to-end smoke pipeline
-│   ├── run_large_v2_pipeline.sh     # Public entry point for the canonical experiment
-│   ├── run_large_v2_impl.sh         # Resumable, sample-sharded multi-GPU implementation
-│   ├── slurm_train_smoke.sh         # Generic one-GPU Slurm job template
-│   └── slurm_large_v2.sh            # Generic four-GPU Slurm job template
+│   ├── prepare_data.py              # Optional official evaluation-data normalization
+│   ├── 00_check_environment.py       # Environment/GPU preflight
+│   ├── 01_smoke_dream.py             # Historical Dream loading/generation check
+│   ├── 02_reproduce_dream_baseline.py # Official/custom Dream parity
+│   ├── 03_collect_teacher_trajectories.py # Teacher state collection/shard merge
+│   ├── 04_build_counterfactual_cache.py # Frozen-backbone diagnostic labels
+│   ├── 05_run_oracle_treepc.py        # Oracle decoding diagnostics
+│   ├── 06_train_dependency_head.py   # Dependency training from external caches
+│   ├── 07_train_correction_head.py   # Oracle-tree then learned-tree training
+│   ├── 08_decode_frozen_treepc.py    # Frozen-backbone diagnostics
+│   ├── 09_train_pc_lora.py           # Warm-up cache loading + mixed-budget PC training
+│   ├── 10_recalibrate_heads.py       # Optional final-PC states and teacher labels
+│   ├── 12_run_main_experiments.py    # Historical small comparison
+│   ├── 16_aggregate_results.py       # Historical sharded reports
+│   ├── 20_prepare_large_scale.py     # Deterministic split manifest
+│   ├── 22_evaluate_heads.py          # RQ2 and correction diagnostics
+│   ├── 23_check_assets.py            # Historical Dream asset checks
+│   ├── 24_validate_train_run.py      # Historical smoke artifact checks
+│   ├── 25_evaluate_rq1.py            # KL/agreement/recall/calibration
+│   ├── 26_evaluate_efficiency.py     # Isolated method runs and counted actual NFE
+│   ├── 27_build_paper_reports.py     # RQ3 curves, matched-quality RQ4 and proxies
+│   ├── run_paper_experiments.py      # Unified stages and per-GPU example sharding
+│   ├── slurm_paper.sh               # Generic four-GPU HiPerGator launcher
+│   └── run_* / slurm_*              # Historical smoke/large_v2 launchers
 ├── src/treepc/
-    ├── types.py                     # Shared dataclasses and trace/result types
-    ├── data/
-    │   ├── datasets.py              # Dataset loading and deterministic split manifests
-    │   ├── trajectory.py            # Teacher trajectory cache representation
-    │   ├── onpolicy.py              # Student on-policy state representation
-    │   ├── counterfactual.py        # Counterfactual label construction
-    │   ├── pc_cache.py              # PC-LoRA supervision cache construction
-    │   ├── cache_schema.py          # Cache schema validation
-    │   └── cache_dataset.py         # PyTorch datasets over cached supervision
-    ├── dream/
-    │   ├── loader.py                # Local Dream checkpoint loading
-    │   ├── adapter.py               # Unified Dream forward/tokenization adapter
-    │   ├── generation.py            # Independent diffusion decoding and trace capture
-    │   └── alignment.py             # Teacher/student state alignment
-    ├── graph/
-    │   ├── chow_liu.py              # Maximum-spanning dependency tree construction
-    │   └── orientation.py           # Tree rooting and parent/child orientation
-    ├── posterior/
-    │   ├── consistency.py           # Tree posterior-consistency updates
-    │   ├── divergences.py           # Distribution divergence utilities
-    │   └── topk_support.py          # Top-k posterior support operations
-    ├── models/
-    │   ├── pc_lora.py               # LoRA attachment and PC model helpers
-    │   ├── dependency_head.py       # Pairwise dependency scoring head
-    │   ├── correction_head.py       # Conditional token correction head
-    │   └── treepc_bundle.py         # Checkpoint bundle loading
-    ├── decoding/
-    │   ├── learned_treepc.py        # Learned TreePC decoder
-    │   └── oracle_treepc.py         # Oracle/diagnostic TreePC decoder
-    ├── training/
-    │   ├── pc_trainer.py            # PC-LoRA training loop
-    │   ├── dependency_trainer.py    # Dependency-head training loop
-    │   ├── correction_trainer.py    # Correction-head training loop
-    │   └── losses.py                # Training objectives
-    ├── evaluation/
-    │   ├── task_metrics.py          # GSM8K and HumanEval task metrics
-    │   ├── humaneval.py             # Isolated HumanEval execution helper
-    │   ├── oracle_metrics.py        # Oracle diagnostic metrics
-    │   ├── rq1.py                   # RQ1 calibration/recall metrics
-    │   └── statistics.py            # Aggregation and confidence intervals
-    └── utils/
-        ├── environment.py           # Runtime/environment capture
-        ├── io.py                    # Atomic JSON/JSONL and hashing helpers
-        └── seed.py                  # Reproducible RNG initialization
+│   ├── backbones/                   # Common interface, factory and LLaDA semantics
+│   ├── dream/                       # Dream loading, shifted alignment and generation
+│   ├── data/                        # Datasets, manifests and cache schemas/loaders
+│   ├── models/                      # PC-LoRA, dependency/correction heads and bundles
+│   ├── training/                    # Offline/on-policy PC and head objectives
+│   ├── graph/                       # Maximum spanning tree and BFS orientation
+│   ├── posterior/                   # KL and support utilities
+│   ├── decoding/                    # Learned TreePC and diagnostic oracle
+│   ├── evaluation/                  # Four-task metrics and official baseline bridges
+│   ├── utils/                       # IO, provenance, seeds and environment
+│   └── types.py                     # State, trace and result types
+└── tests/{unit,integration}/        # CPU invariants and opt-in GPU model tests
 ```
 
-Empty `__init__.py` files establish the Python packages and are omitted from the annotations above.
+## Setup
 
-## External assets
-
-### Model checkpoints
-
-Install the Hugging Face CLI and download weights into the expected local directories:
-
-```bash
-python -m pip install -U huggingface_hub
-
-hf download Dream-org/Dream-v0-Instruct-7B \
-  --local-dir models/DREAM-7B
-
-hf download GSAI-ML/LLaDA-8B-Instruct \
-  --local-dir models/LLaDA-8B
-```
-
-Official pages:
-
-- [Dream-v0-Instruct-7B](https://huggingface.co/Dream-org/Dream-v0-Instruct-7B)
-- [LLaDA-8B-Instruct](https://huggingface.co/GSAI-ML/LLaDA-8B-Instruct)
-
-`TREEPC_MODEL_DIR` overrides the repository default (`models/DREAM-7B`). The canonical runner in
-this snapshot uses Dream; merely placing LLaDA weights in `models/LLaDA-8B` does not switch the
-backbone.
-
-### Datasets
-
-The two datasets used by `large_v2` can be downloaded and normalized directly from their official
-repositories:
-
-```bash
-python scripts/prepare_data.py \
-  --output-root data/processed/track1_general
-```
-
-This creates:
-
-```text
-data/processed/track1_general/
-├── gsm8k/samples.jsonl
-└── humaneval/samples.jsonl
-```
-
-Official benchmark sources:
-
-- [GSM8K](https://github.com/openai/grade-school-math)
-- [HumanEval](https://github.com/openai/human-eval)
-- [MATH-500](https://huggingface.co/datasets/HuggingFaceH4/MATH-500)
-- [MBPP](https://github.com/google-research/google-research/tree/master/mbpp)
-
-Set `TREEPC_DATA_ROOT` if the processed files live elsewhere. MATH-500 and MBPP are not consumed by
-the checked-in Dream/GSM8K/HumanEval runner and require their corresponding task adapters.
-
-## Environment and dependencies
-
-The released run used Python 3.11, PyTorch 2.11.0 with CUDA 12.8, Transformers 4.48.0,
-Accelerate 1.9.0, PEFT 0.14.0, Safetensors 0.5.2, and PyYAML 6.0.3. A CUDA GPU with BF16 support is
-required for model experiments. CPU-only unit tests do not require model weights or benchmark data.
-
-Example setup for CUDA 12.8:
+Python 3.11 and a BF16-capable CUDA GPU. Tested core versions are PyTorch 2.11.0/cu128,
+Transformers 4.48.0 and PEFT 0.14.0. Install a PyTorch build compatible with your driver.
 
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install torch==2.11.0 \
-  --index-url https://download.pytorch.org/whl/cu128
-python -m pip install -r requirements-dev.txt
+python -m pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cu128
+python -m pip install -r requirements-dev.txt -r requirements-evaluation.txt
 python -m pip install --no-deps -e .
 ```
 
-For a different CUDA stack, install the matching PyTorch build first, then install the remaining
-requirements. The preflight checker intentionally reports a version mismatch when the experiment
-environment differs from the released one.
+MATH grading uses [Math-Verify](https://github.com/huggingface/Math-Verify).
+HumanEval/MBPP execute generated Python: use an externally isolated worker/container
+without credentials or privileged mounts. A timeout subprocess is **not** a security sandbox.
 
-## Basic verification
+## Official resources and local names
 
-Run the CPU-safe checks from the repository root:
+| Resource | Official source | Local path |
+|---|---|---|
+| Dream | [Dream-org/Dream-v0-Instruct-7B](https://huggingface.co/Dream-org/Dream-v0-Instruct-7B) | `models/DREAM-7B/` |
+| LLaDA | [GSAI-ML/LLaDA-8B-Instruct](https://huggingface.co/GSAI-ML/LLaDA-8B-Instruct) | `models/LLaDA-8B/` |
+| GSM8K | [OpenAI](https://github.com/openai/grade-school-math) | `data/processed/track1_general/gsm8k/samples.jsonl` |
+| HumanEval | [OpenAI](https://github.com/openai/human-eval) | `data/processed/track1_general/humaneval/samples.jsonl` |
+| MATH-500 | [HuggingFaceH4](https://huggingface.co/datasets/HuggingFaceH4/MATH-500) | `data/processed/track1_general/math500/samples.jsonl` |
+| MBPP | [Google Research](https://github.com/google-research/google-research/tree/master/mbpp) | `data/processed/track1_general/mbpp/samples.jsonl` |
+| Fast-dLLM | [NVlabs](https://github.com/NVlabs/Fast-dLLM) | `external/Fast-dLLM/` |
+| CD4LM | [yihao-liang/CDLM](https://github.com/yihao-liang/CDLM) | `external/CDLM/` |
 
-```bash
-ruff check .
-pytest
-bash -n scripts/*.sh
-```
+Resources can live outside the repository: edit YAML model/baseline paths and `--data-root`.
+Single-stage scripts honor `TREEPC_BACKBONE=dream|llada`, `TREEPC_MODEL_DIR`,
+and `TREEPC_DATA_ROOT`. Review the checkpoint's local remote-code files before loading.
+Record the external code revision; never confuse CD4LM DSCD assets with TreePC adapters.
 
-The default pytest configuration excludes tests marked `model`. After downloading Dream and the
-datasets on a CUDA machine, run the integration checks explicitly:
-
-```bash
-export TREEPC_MODEL_DIR="$PWD/models/DREAM-7B"
-export TREEPC_DATA_ROOT="$PWD/data/processed/track1_general"
-pytest -m model -o addopts=-ra
-```
-
-## Running TreePC
-
-All commands below are issued from the repository root. Output paths are deliberately externalized
-through environment variables, so weights and generated artifacts never need to be committed.
-
-### One-GPU smoke run
+Optional evaluation-data preparation (not run to create this release):
 
 ```bash
-export TREEPC_MODEL_DIR="$PWD/models/DREAM-7B"
-export TREEPC_DATA_ROOT="$PWD/data/processed/track1_general"
-export TREEPC_RUN_DIR="$PWD/results/train_smoke_$(date +%Y%m%d_%H%M%S)"
-export TREEPC_PYTHON="$PWD/.venv/bin/python"
-export TREEPC_GPU_IDS=0
-
-bash scripts/run_train_smoke.sh
+python scripts/prepare_data.py --datasets gsm8k humaneval math500 mbpp \
+  --output-root /external/data/track1_general
 ```
 
-This performs asset validation, a Dream generation check, PC-LoRA training, dependency/correction
-head training, held-out evaluation, and final artifact validation.
+## Evaluation protocol
 
-### Canonical four-GPU `large_v2` run
+The default configuration is **internal held-out evaluation**, not a leaderboard claim:
+it repurposes mutually disjoint subsets of public evaluation records for training.
+For standard evaluation, set `protocol: standard` and supply genuinely separate training
+sources tagged `source_split: train` plus official test rows tagged `source_split: test`.
+Validation is drawn only from training sources. Duplicate prompt text across splits is rejected.
+HumanEval/MATH-500 are evaluation sets: readers must separately provide training sources,
+not manufacture training rows from those test prompts. IDs must be unique within each dataset.
+Official test subsets are labeled as subsets, never full benchmark scores.
 
-```bash
-export TREEPC_MODEL_DIR="$PWD/models/DREAM-7B"
-export TREEPC_DATA_ROOT="$PWD/data/processed/track1_general"
-export TREEPC_RUN_DIR="$PWD/results/large_v2_$(date +%Y%m%d_%H%M%S)"
-export TREEPC_PYTHON="$PWD/.venv/bin/python"
-export TREEPC_GPU_IDS=0,1,2,3
+All backbone/teacher profiles reuse the same source hashes, seed and prompt splits.
+RQ1 KL is a Top-K-plus-OTHER coarse-grained KL, not exact vocabulary KL. Comparison uses
+the same PC-visited state and comparable masked positions. Head objectives also use cached
+support plus exact OTHER mass; online decoding nevertheless corrects full-vocabulary logits.
+Specifically, correction training/held-out cache metrics project onto the cached support
+and hold the base OTHER log mass fixed before renormalization. This is a surrogate KL,
+not the exact KL of the full-vocabulary online corrected posterior; report it as such.
 
-bash scripts/run_large_v2_pipeline.sh all
-```
+## External intermediate inputs
 
-The orchestration is resumable: completed caches/checkpoints/reports are detected and reused.
-Teacher collection, on-policy state collection, counterfactual labeling, and final evaluation are
-sample-sharded over visible GPUs; PC-LoRA and both lightweight heads train on the first visible GPU.
-
-Individual stages are also available:
-
-```bash
-bash scripts/run_large_v2_pipeline.sh prepare
-bash scripts/run_large_v2_pipeline.sh pc-cache
-bash scripts/run_large_v2_pipeline.sh pc-train
-bash scripts/run_large_v2_pipeline.sh head-cache
-bash scripts/run_large_v2_pipeline.sh rq1
-bash scripts/run_large_v2_pipeline.sh head-train
-bash scripts/run_large_v2_pipeline.sh test
-```
-
-### Slurm
-
-The supplied scripts are cluster-neutral templates. Provide the partition/account/QoS required by
-your site and export only local paths:
-
-```bash
-RUN_DIR=/path/to/project-storage/runs/large_v2_$(date +%Y%m%d_%H%M%S)
-
-sbatch \
-  --partition=<gpu-partition> \
-  --account=<account> \
-  --qos=<qos> \
-  --export=ALL,TREEPC_MODEL_DIR="$PWD/models/DREAM-7B",TREEPC_DATA_ROOT="$PWD/data/processed/track1_general",TREEPC_RUN_DIR="$RUN_DIR",TREEPC_PYTHON="$PWD/.venv/bin/python" \
-  scripts/slurm_large_v2.sh
-```
-
-Adjust `#SBATCH --gres`, memory, and time in the template or override them on the `sbatch` command
-line. The canonical setup requests four GPUs, 16 CPUs, 128 GB host memory, and 48 hours.
-
-## Outputs
-
-Each run directory contains:
+All runtime artifacts belong **outside TreePC_Code**, e.g. `/blue/<group>/<user>/treepc-paper`.
+No intermediate inputs are supplied. Stages assume the documented artifacts already exist
+and fail explicitly when inputs are missing. Per backbone/teacher profile:
 
 ```text
-<run-dir>/
-├── manifest.json                    # Exact prompt-level split and source hashes
-├── environment.json                 # Software and accelerator metadata
-├── cache/                           # Regenerable teacher/PC/head caches (large)
-├── checkpoints/                     # PC-LoRA and two learned heads
-├── logs/                            # Stage-specific logs
-├── eval/                            # Per-example sharded evaluation rows
-└── reports/
-    ├── rq1_test.{json,csv}
-    ├── rq2_test.{json,csv}
-    ├── heldout_heads.json
-    └── head_test/summary.{json,csv,md}
+<artifact-root>/<dream|llada>/teacher_<256|512>/
+├── manifest.json
+├── cache/
+│   ├── teacher/<dataset>_test.pt     # Four teacher states; trajectory.v1
+│   ├── pc/<dataset>_{train,validation}.pt # Coarse/fine warm-up; pc_nested.v1
+│   └── heads/<dataset>_{train,validation,test}_<shard>.pt # counterfactual.v1
+├── checkpoints/
+│   ├── pc_lora/                     # PEFT adapter_config + adapter_model.safetensors
+│   ├── dependency_head.pt
+│   └── correction_head.pt
+├── logs/
+├── eval/                            # Per-example task/timing/NFE rows
+└── reports/                         # RQ1–RQ4 summaries
 ```
 
-The `large_v2` manifest uses seed 5050. PC-LoRA splits contain 800/160/200 GSM8K and 96/24/32
-HumanEval prompts for train/validation/test. Head splits are nested within the matching PC splits
-and contain 500/100/200 and 64/16/32 prompts. These source files are public benchmark test rows
-repurposed into mutually disjoint internal splits; results from this profile must not be described
-as standard leaderboard test-set results.
+Readers can prepare warm-up caches with script 03 and script 09's `build-cache` command,
+or supply schema-compatible existing inputs. Script 10 optionally creates final-PC head
+states/labels outside the repository. Head caches must contain the **current PC adapter
+SHA256, backbone, manifest fingerprint and configured split/budget coverage**;
+stale/pre-revision caches are rejected. Their shard count matches
+`--gpus`. Preserve split metadata and manifest fingerprints. PC rollout buffers stay in RAM.
 
-HumanEval evaluation executes generated Python. Run it only in an isolated environment with no
-secrets or privileged filesystem access.
+## Running
+
+Run from this directory, after configuring YAML and external paths:
+
+```bash
+export TREEPC_DATA_ROOT=/external/data/track1_general
+export TREEPC_RUN_ROOT=/external/treepc-paper
+
+# Read-only plan: no model loading or artifact generation.
+python scripts/run_paper_experiments.py --run-root "$TREEPC_RUN_ROOT" \
+  --data-root "$TREEPC_DATA_ROOT" --gpus 0,1,2,3 --dry-run
+
+# Manifest and PC training from existing warm-up caches.
+for stage in manifest pc; do
+  python scripts/run_paper_experiments.py --run-root "$TREEPC_RUN_ROOT" \
+    --data-root "$TREEPC_DATA_ROOT" --gpus 0,1,2,3 --stage "$stage"
+done
+
+# Supply final-PC head caches, OR opt into their runtime external generation.
+python scripts/run_paper_experiments.py --run-root "$TREEPC_RUN_ROOT" \
+  --data-root "$TREEPC_DATA_ROOT" --gpus 0,1,2,3 --stage collect-heads
+
+for stage in heads rq1 rq2 eval efficiency external reports; do
+  python scripts/run_paper_experiments.py --run-root "$TREEPC_RUN_ROOT" \
+    --data-root "$TREEPC_DATA_ROOT" --gpus 0,1,2,3 --stage "$stage"
+done
+```
+
+`--stage all` assumes intermediate inputs. An existing PC adapter is not implicitly
+overwritten; `--prepare-heads` explicitly opts into runtime external regeneration after PC.
+Use a fresh artifact root for changed code/configuration. Existing evaluation outputs are
+not silently overwritten. Missing resources cause errors, never placeholder results.
+
+RQ4 uses isolated method processes, warm-up, repeated seeded timing and counted model calls.
+Auxiliary profiling is separate and excluded from unprofiled end-to-end speedups.
+Peak GPU memory is PyTorch's process-local `max_memory_allocated` during generation,
+including resident model parameters; it is not total node VRAM usage or training peak memory.
+Budget selection uses validation quality, followed by held-out test reporting. Missing
+matched-quality candidates are reported, not filled with invented speedups.
+Optional `27_build_paper_reports.py --proxy-spec <json>` generates explicitly labeled
+linear estimates with their measured anchors, never target-task measurement claims.
+
+## HiPerGator and GPU profiles
+
+Example memory profiles: L40 (48 GB), RTX PRO 6000 (96 GB), B200 (180 GB).
+These are configuration examples, not guaranteed current cluster availability.
+L4 is **not** L40; query partitions/GRES with `sinfo -o '%P %G'`.
+Whether full training fits depends on sequence length and candidate count; a smoke peak is not a bound.
+
+```bash
+sbatch --account=<group> --qos=<group> --partition=<available-gpu-partition> \
+  --gres=gpu:4 --time=48:00:00 \
+  --export=ALL,TREEPC_RUN_ROOT="$TREEPC_RUN_ROOT",TREEPC_DATA_ROOT="$TREEPC_DATA_ROOT",TREEPC_PYTHON="$PWD/.venv/bin/python" \
+  scripts/slurm_paper.sh
+```
+
+GPU IDs are allocation-local; the driver maps them to scheduler-visible devices.
+Jobs survive SSH disconnection; project-storage artifacts persist after GPU allocations end.
+
+## Tests
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -p no:cacheprovider
+ruff check .
+for script in scripts/*.sh; do bash -n "$script"; done
+
+CUDA_VISIBLE_DEVICES=<idle-lab-gpu> TREEPC_TEST_MODEL_ROOT=/external/checkpoint/parent \
+  PYTHONPATH=src pytest tests/integration/test_revision_models.py -m model -v
+```
+
+Real-model tests write only to pytest's external temporary directory. Full-scale training
+and paper-score reproduction are not established by these small tests.

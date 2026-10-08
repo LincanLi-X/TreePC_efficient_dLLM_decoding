@@ -37,8 +37,7 @@ def environment_report() -> dict[str, Any]:
     except (OSError, subprocess.CalledProcessError, IndexError):
         driver = None
     files = [
-        model_dir / name
-        for name in ("config.json", "model.safetensors.index.json", "generation_utils.py")
+        model_dir / name for name in ("config.json", "model.safetensors.index.json", "generation_utils.py")
     ]
     return {
         "python": sys.version.split()[0],

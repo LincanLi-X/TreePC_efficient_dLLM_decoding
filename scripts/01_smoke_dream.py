@@ -42,12 +42,20 @@ def main() -> None:
         state = adapter.make_initial_state(first, 32, 4)
         with torch.inference_mode():
             no_hidden = adapter.model(
-                state.input_ids, state.attention_mask, state.tok_idx,
-                output_hidden_states=False, output_attentions=False, return_dict=True,
+                state.input_ids,
+                state.attention_mask,
+                state.tok_idx,
+                output_hidden_states=False,
+                output_attentions=False,
+                return_dict=True,
             ).logits
             with_hidden = adapter.model(
-                state.input_ids, state.attention_mask, state.tok_idx,
-                output_hidden_states=True, output_attentions=False, return_dict=True,
+                state.input_ids,
+                state.attention_mask,
+                state.tok_idx,
+                output_hidden_states=True,
+                output_attentions=False,
+                return_dict=True,
             ).logits
         hidden_logits_equal = torch.equal(no_hidden, with_hidden)
         initialized_as_mask = bool(

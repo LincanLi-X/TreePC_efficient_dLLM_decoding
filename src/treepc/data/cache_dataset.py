@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -46,7 +47,7 @@ def load_labeled_records(
 ) -> list[dict[str, Any]]:
     """Load PC-on-policy Teacher labels that already embed the Student hidden states."""
     records: list[dict[str, Any]] = []
-    seen: set[tuple[str, int, int]] = set()
+    seen: set[tuple] = set()
     for path in paths:
         bundle = torch.load(path, map_location="cpu", weights_only=False)
         validate_counterfactual_bundle(bundle)
@@ -66,7 +67,12 @@ def load_labeled_records(
             missing = required - record.keys()
             if missing:
                 raise ValueError(f"Labeled record is missing {sorted(missing)}")
-            key = (record["sample_id"], int(record["steps"]), int(record["step_index"]))
+            key = (
+                record.get("dataset"),
+                record["sample_id"],
+                int(record["steps"]),
+                int(record["step_index"]),
+            )
             if key in seen:
                 raise ValueError(f"Duplicate labeled state {key}")
             seen.add(key)
@@ -85,7 +91,7 @@ class DependencyCacheDataset(Dataset[dict[str, Tensor]]):
 
     def __getitem__(self, index: int) -> dict[str, Tensor]:
         record = self.records[index]
-        dataset_key = {"gsm8k": 1, "humaneval": 2}.get(str(record.get("dataset")), 0)
+        dataset_key = {"gsm8k": 1, "humaneval": 2, "math500": 3, "mbpp": 4}.get(str(record.get("dataset")), 0)
         record_key = (
             dataset_key * 1_000_000_000_000
             + int(record.get("dataset_index", index)) * 1_000_000
@@ -99,6 +105,42 @@ class DependencyCacheDataset(Dataset[dict[str, Tensor]]):
             "target": record["symmetric_dependency"].float(),
             "record_key": torch.tensor(record_key, dtype=torch.long),
         }
+
+
+class DependencyBatchSampler:
+    """Batch equal-size graphs, so padding cannot contaminate edge losses or MSTs."""
+
+    def __init__(self, dataset, batch_size, *, shuffle=False, generator=None):
+        if batch_size < 1:
+            raise ValueError("batch_size must be positive")
+        self.groups = defaultdict(list)
+        for index in range(len(dataset)):
+            self.groups[int(dataset[index]["positions"].numel())].append(index)
+        self.batch_size, self.shuffle, self.generator = batch_size, shuffle, generator
+
+    def __len__(self):
+        return sum(
+            (len(indices) + self.batch_size - 1) // self.batch_size for indices in self.groups.values()
+        )
+
+    def __iter__(self):
+        batches = []
+        for original in self.groups.values():
+            indices = original
+            if self.shuffle:
+                indices = [
+                    original[i] for i in torch.randperm(len(original), generator=self.generator).tolist()
+                ]
+            batches.extend(
+                indices[start : start + self.batch_size] for start in range(0, len(indices), self.batch_size)
+            )
+        order = (
+            torch.randperm(len(batches), generator=self.generator).tolist()
+            if self.shuffle
+            else range(len(batches))
+        )
+        for index in order:
+            yield batches[index]
 
 
 @dataclass(frozen=True)
@@ -120,6 +162,10 @@ class CorrectionCacheDataset(Dataset[dict[str, Tensor]]):
         self.records = records
         self.indices: list[CorrectionIndex] = []
         for record_index, record in enumerate(records):
+            if "predicted_dependency" not in record:
+                raise ValueError(
+                    "Correction gates require predicted_dependency; run the frozen dependency head first"
+                )
             nodes = int(record["candidate_positions"].numel())
             samples = (
                 int(record["sampled_parent_tokens"].shape[1])
@@ -190,7 +236,7 @@ class CorrectionCacheDataset(Dataset[dict[str, Tensor]]):
             "relative_position": (positions[child] - positions[parent]).float(),
             "sequence_length": torch.tensor(record["state_token_ids"].numel(), dtype=torch.float32),
             "timestep": torch.tensor(record["timestep"], dtype=torch.float32),
-            "dependency_weight": record["symmetric_dependency"][parent, child].float(),
+            "dependency_weight": record["predicted_dependency"][parent, child].float(),
             "token_ids": record["support_ids"][cache_index].long(),
             "support_mask": record["support_mask"][cache_index].bool(),
             "base_support_log_probs": base_support,
@@ -213,4 +259,8 @@ def load_dream_embedding_weights(model_dir: str | Path, device: str | torch.devi
             tensor = handle.get_tensor(key)
         return tensor.to(device=device, dtype=torch.bfloat16)
 
-    return load_key("model.embed_tokens.weight"), load_key("lm_head.weight")
+    if "model.embed_tokens.weight" in index["weight_map"]:
+        return load_key("model.embed_tokens.weight"), load_key("lm_head.weight")
+    input_weight = load_key("model.transformer.wte.weight")
+    output_key = "model.transformer.ff_out.weight"
+    return input_weight, load_key(output_key) if output_key in index["weight_map"] else input_weight

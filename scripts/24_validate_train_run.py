@@ -48,9 +48,7 @@ def main() -> None:
         raise ValueError("The correction checkpoint has an unsupported schema")
     if "global_scale_logit" not in correction.get("state_dict", {}):
         raise ValueError("The new correction checkpoint is missing global_scale_logit")
-    global_scale = float(
-        torch.sigmoid(correction["state_dict"]["global_scale_logit"].float()).item()
-    )
+    global_scale = float(torch.sigmoid(correction["state_dict"]["global_scale_logit"].float()).item())
     if not 0.0 < global_scale < 1.0:
         raise ValueError(f"The learned global scale is out of range: {global_scale}")
 
@@ -63,8 +61,7 @@ def main() -> None:
     rows_path = require_file(run_dir / "eval/head_test/shard_0/rows.jsonl")
     rows = [json.loads(line) for line in rows_path.read_text(encoding="utf-8").splitlines() if line]
     expected_samples = sum(
-        len(manifest["datasets"][dataset]["head_test_indices"])
-        for dataset in ("gsm8k", "humaneval")
+        len(manifest["datasets"][dataset]["head_test_indices"]) for dataset in ("gsm8k", "humaneval")
     )
     expected_methods = {
         "dream_baseline",

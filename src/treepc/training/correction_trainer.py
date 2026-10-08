@@ -20,9 +20,7 @@ def _batch_to_device(batch: dict[str, Tensor], device: torch.device) -> dict[str
     return {key: value.to(device) for key, value in batch.items()}
 
 
-def _prediction(
-    model: ConditionalCorrectionHead, batch: dict[str, Tensor]
-) -> tuple[Tensor, Tensor, Tensor]:
+def _prediction(model: ConditionalCorrectionHead, batch: dict[str, Tensor]) -> tuple[Tensor, Tensor, Tensor]:
     base = batch["base_support_log_probs"].masked_fill(~batch["support_mask"], -torch.inf)
     return model(
         child_hidden=batch["child_hidden"],
@@ -41,11 +39,7 @@ def _oriented_tree_pairs(weights: Tensor, confidence: Tensor) -> set[tuple[int, 
     prim_parent, _ = maximum_spanning_tree(weights)
     root = int(confidence.argmax().item())
     parent, _ = orient_tree(prim_parent, root)
-    return {
-        (int(parent[child].item()), child)
-        for child in range(parent.numel())
-        if parent[child] >= 0
-    }
+    return {(int(parent[child].item()), child) for child in range(parent.numel()) if parent[child] >= 0}
 
 
 @torch.inference_mode()
@@ -75,10 +69,15 @@ def select_learned_tree_pairs(
         positions = record["candidate_positions"].long().to(device)
         timestep = torch.tensor(record["timestep"], device=device)
         weights = dependency_head(hidden, positions, timestep)
-        result[index] = _oriented_tree_pairs(
-            weights, record["candidate_confidence"].to(device)
-        )
+        record["predicted_dependency"] = weights.detach().float().cpu()
+        result[index] = _oriented_tree_pairs(weights, record["candidate_confidence"].to(device))
     return result
+
+
+@torch.inference_mode()
+def attach_predicted_weights(dependency_head, records, device):
+    """Oracle weights remain targets; gates always consume frozen predictions."""
+    select_learned_tree_pairs(dependency_head, records, device)
 
 
 @torch.inference_mode()
@@ -97,9 +96,7 @@ def calibrate_tree_gate(
         timestep = torch.tensor(record["timestep"], device=device)
         weights = dependency_head(hidden, positions, timestep)
         _, edge_weight = maximum_spanning_tree(weights)
-        dataset = CorrectionCacheDataset(
-            [record], identity_fraction=0.0, selected_pairs={0: selected[index]}
-        )
+        dataset = CorrectionCacheDataset([record], identity_fraction=0.0, selected_pairs={0: selected[index]})
         metrics = evaluate_correction_head(
             correction_head, DataLoader(dataset, batch_size=batch_size), device
         )
@@ -112,10 +109,7 @@ def calibrate_tree_gate(
     scores = sorted({row["dependency_sum"] for row in rows})
     candidates = [0.0, *scores, (scores[-1] + 1e-6 if scores else 1e-6)]
     objectives = [
-        sum(
-            row["conditional_kl_reduction"] if row["dependency_sum"] >= threshold else 0.0
-            for row in rows
-        )
+        sum(row["conditional_kl_reduction"] if row["dependency_sum"] >= threshold else 0.0 for row in rows)
         / max(len(rows), 1)
         for threshold in candidates
     ]
@@ -123,9 +117,7 @@ def calibrate_tree_gate(
     return {
         "dependency_threshold": candidates[best_index],
         "validation_objective_kl_reduction": objectives[best_index],
-        "tree_enabled_state_rate": sum(
-            row["dependency_sum"] >= candidates[best_index] for row in rows
-        )
+        "tree_enabled_state_rate": sum(row["dependency_sum"] >= candidates[best_index] for row in rows)
         / max(len(rows), 1),
         "state_count": len(rows),
         "candidates": [
@@ -180,9 +172,7 @@ def evaluate_correction_head(
             top1_matches += int(predicted.argmax(-1).eq(target.argmax(-1)).sum().item())
             top1_total += int(actual.sum().item())
             gates.append(gate[actual].cpu())
-            masked_correction = effective_correction[actual].masked_fill(
-                ~batch["support_mask"][actual], 0.0
-            )
+            masked_correction = effective_correction[actual].masked_fill(~batch["support_mask"][actual], 0.0)
             effective_correction_norms.append(masked_correction.norm(dim=-1).cpu())
             dependencies.append(batch["dependency_weight"][actual].cpu())
         if identity.any():
@@ -202,18 +192,14 @@ def evaluate_correction_head(
         "base_conditional_kl": float(base_values.mean().item()),
         "corrected_conditional_kl": float(corrected_values.mean().item()),
         "conditional_kl_reduction": float((base_values.mean() - corrected_values.mean()).item()),
-        "conditional_kl_improved_pair_rate": float(
-            corrected_values.lt(base_values).float().mean().item()
-        ),
+        "conditional_kl_improved_pair_rate": float(corrected_values.lt(base_values).float().mean().item()),
         "teacher_top1_agreement": top1_matches / max(top1_total, 1),
         "identity_kl": float(identity_value.item()),
         "mean_gate": float(gate_values.mean().item()),
         "global_scale": model.global_scale_value(),
         "mean_effective_gate": float(gate_values.mean().item()) * model.global_scale_value(),
         "mean_effective_correction_l2": float(correction_norm_values.mean().item()),
-        "mean_effective_correction_l2_squared": float(
-            correction_norm_values.square().mean().item()
-        ),
+        "mean_effective_correction_l2_squared": float(correction_norm_values.square().mean().item()),
         "gate_dependency_correlation": float(correlation.item()),
     }
 

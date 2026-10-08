@@ -48,17 +48,13 @@ def run_cached(args: argparse.Namespace) -> None:
         "oracle_beats_random_rate": mean(
             [{"v": row["oracle_over_random_gain"] >= -1e-7} for row in rows], "v"
         ),
-        "oracle_beats_local_rate": mean(
-            [{"v": row["oracle_over_local_gain"] >= -1e-7} for row in rows], "v"
-        ),
+        "oracle_beats_local_rate": mean([{"v": row["oracle_over_local_gain"] >= -1e-7} for row in rows], "v"),
         "independent_conditional_kl_mean": mean(rows, "independent_conditional_kl"),
         "oracle_conditional_kl_mean": 0.0,
         "base_teacher_token_nll_mean": mean(rows, "base_teacher_token_nll"),
         "conditional_teacher_token_nll_mean": mean(rows, "conditional_teacher_token_nll"),
         "base_teacher_top1_agreement_mean": mean(rows, "base_teacher_top1_agreement"),
-        "conditional_teacher_top1_agreement_mean": mean(
-            rows, "conditional_teacher_top1_agreement"
-        ),
+        "conditional_teacher_top1_agreement_mean": mean(rows, "conditional_teacher_top1_agreement"),
         "mean_tail_mass": mean(rows, "mean_tail_mass"),
         "diagnostic_only": True,
     }
@@ -109,12 +105,15 @@ def run_online(args: argparse.Namespace) -> None:
             oracle_pass, oracle_error = task_pass(args.dataset, sample, oracle.texts[0])
             teacher_final = final_by_id[sample["sample_id"]]
             prompt_length = adapter.encode_prompt(prompt)["input_ids"].shape[1]
-            independent_agreement = independent.sequences.cpu()[0, prompt_length:].eq(
-                teacher_final[prompt_length:]
-            ).float().mean()
-            oracle_agreement = oracle.sequences.cpu()[0, prompt_length:].eq(
-                teacher_final[prompt_length:]
-            ).float().mean()
+            independent_agreement = (
+                independent.sequences.cpu()[0, prompt_length:]
+                .eq(teacher_final[prompt_length:])
+                .float()
+                .mean()
+            )
+            oracle_agreement = (
+                oracle.sequences.cpu()[0, prompt_length:].eq(teacher_final[prompt_length:]).float().mean()
+            )
             row = {
                 "ordinal": ordinal,
                 "dataset": args.dataset,
@@ -130,9 +129,7 @@ def run_online(args: argparse.Namespace) -> None:
                 "independent_latency_s": independent.latency_seconds,
                 "oracle_latency_s": oracle.latency_seconds,
                 "oracle_extra_teacher_forwards": extra_forwards,
-                "mean_tree_dependency_sum": statistics.mean(
-                    item["tree_dependency_sum"] for item in trace
-                ),
+                "mean_tree_dependency_sum": statistics.mean(item["tree_dependency_sum"] for item in trace),
                 "mean_tree_depth": statistics.mean(item["tree_depth"] for item in trace),
                 "corrected_token_flips": sum(item["corrected_token_flips"] for item in trace),
                 "independent_output": independent.texts[0],
@@ -177,8 +174,7 @@ def aggregate(args: argparse.Namespace) -> None:
     cached = [json.loads(path.read_text()) for path in root.glob("cached/*/summary.json")]
     online = [json.loads(path.read_text()) for path in root.glob("online/*/summary.json")]
     trajectory = [
-        json.loads(path.read_text())
-        for path in (root.parent / "trajectories").glob("*_summary.json")
+        json.loads(path.read_text()) for path in (root.parent / "trajectories").glob("*_summary.json")
     ]
     if len(cached) != 2 or len(online) != 2:
         raise RuntimeError(f"Expected two cached and online summaries, got {len(cached)}, {len(online)}")
@@ -202,9 +198,15 @@ def aggregate(args: argparse.Namespace) -> None:
     csv_path = Path(args.output_csv)
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     fields = [
-        "dataset", "steps", "sample_size", "independent_accuracy", "oracle_accuracy",
-        "task_accuracy_delta", "independent_teacher_token_agreement",
-        "oracle_teacher_token_agreement", "teacher_token_agreement_delta",
+        "dataset",
+        "steps",
+        "sample_size",
+        "independent_accuracy",
+        "oracle_accuracy",
+        "task_accuracy_delta",
+        "independent_teacher_token_agreement",
+        "oracle_teacher_token_agreement",
+        "teacher_token_agreement_delta",
         "oracle_extra_teacher_forwards_mean",
     ]
     with csv_path.open("w", encoding="utf-8", newline="") as handle:
@@ -301,10 +303,7 @@ def aggregate_cached_expansion(args: argparse.Namespace) -> None:
         key=lambda row: row["dataset"],
     )
     trajectory = sorted(
-        [
-            json.loads(path.read_text())
-            for path in (root.parent / "trajectories").glob("*_summary.json")
-        ],
+        [json.loads(path.read_text()) for path in (root.parent / "trajectories").glob("*_summary.json")],
         key=lambda row: row["dataset"],
     )
     if len(cached) != 2 or len(trajectory) != 2:

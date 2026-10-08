@@ -25,7 +25,10 @@ class LoadedDream:
 
 
 def load_model_config(path: str | Path | None = None) -> dict[str, Any]:
-    config_path = Path(path) if path else PROJECT_ROOT / "configs/model/dream_7b_instruct.yaml"
+    filename = (
+        "llada_8b_instruct.yaml" if os.environ.get("TREEPC_BACKBONE") == "llada" else "dream_7b_instruct.yaml"
+    )
+    config_path = Path(path) if path else PROJECT_ROOT / "configs/model" / filename
     value = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     if not isinstance(value, dict):
         raise ValueError(f"Expected mapping in {config_path}")
@@ -62,6 +65,10 @@ def load_dream(
     model_revision: str | None = None,
 ) -> LoadedDream:
     config = load_model_config(config_path)
+    if config.get("backbone") == "llada":
+        from treepc.backbones.llada import load_llada
+
+        return load_llada(device, config, model_revision)
     model_dir = resolve_model_dir(config)
     if not (model_dir / "config.json").is_file() or not list(model_dir.glob("*.safetensors")):
         raise FileNotFoundError(f"Incomplete Dream checkpoint: {model_dir}")
@@ -89,8 +96,7 @@ def load_dream(
     if attention_types != {"DreamSdpaAttention"}:
         raise RuntimeError(f"Dream SDPA fast path is not active: {sorted(attention_types)}")
     code_files = [
-        model_dir / name
-        for name in ("configuration_dream.py", "modeling_dream.py", "generation_utils.py")
+        model_dir / name for name in ("configuration_dream.py", "modeling_dream.py", "generation_utils.py")
     ]
     code_hash = hashlib.sha256("".join(sha256_file(path) for path in code_files).encode()).hexdigest()
     tokenizer_files = [model_dir / name for name in ("tokenizer_config.json", "vocab.json", "merges.txt")]
@@ -98,6 +104,7 @@ def load_dream(
         "".join(sha256_file(path) for path in tokenizer_files).encode()
     ).hexdigest()
     metadata = {
+        "backbone": "dream",
         "repo_id": config["repo_id"],
         "local_dir": str(model_dir),
         "model_revision": model_revision,

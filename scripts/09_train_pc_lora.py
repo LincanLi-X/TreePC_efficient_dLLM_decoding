@@ -2,18 +2,22 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 import torch
 import yaml
 
+from treepc.data.datasets import BenchmarkDataset, validate_large_scale_manifest
 from treepc.data.pc_cache import (
     NestedPCDataset,
     build_nested_pc_bundle,
     validate_pc_bundle,
 )
+from treepc.dream.adapter import DreamAdapter
 from treepc.dream.loader import load_dream
 from treepc.models.pc_lora import create_pc_lora_student, load_pc_lora, lora_parameter_summary
+from treepc.training.onpolicy_pc import train_mixed_budget_pc
 from treepc.training.pc_trainer import evaluate_pc_student, train_pc_student
 from treepc.utils.io import sha256_file, write_json
 from treepc.utils.seed import seed_everything
@@ -47,13 +51,15 @@ def build_cache(args: argparse.Namespace) -> None:
 
 def train(args: argparse.Namespace) -> None:
     config = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
+    if args.teacher_steps is not None:
+        config["teacher_steps"] = args.teacher_steps
+    if args.student_budgets is not None:
+        config["student_budgets"] = args.student_budgets
     device = torch.device(args.device)
     if device.type != "cuda" or not torch.cuda.is_available():
         raise RuntimeError("PC-LoRA training requires CUDA")
     seed_everything(int(config["seed"]))
-    train_dataset = NestedPCDataset(
-        args.train_caches, expected_partitions={"train", "pc_train"}
-    )
+    train_dataset = NestedPCDataset(args.train_caches, expected_partitions={"train", "pc_train"})
     validation_dataset = NestedPCDataset(
         args.validation_caches, expected_partitions={"validation", "pc_validation"}
     )
@@ -73,18 +79,54 @@ def train(args: argparse.Namespace) -> None:
     parameter_summary = lora_parameter_summary(student)
     baseline_validation = evaluate_pc_student(student, validation_dataset, device)
     baseline_test = evaluate_pc_student(student, test_dataset, device) if test_dataset else None
-    report = train_pc_student(
-        student,
-        train_dataset,
-        validation_dataset,
-        device=device,
-        output_dir=args.adapter_dir,
-        epochs=int(config["epochs"]),
-        learning_rate=float(config["learning_rate"]),
-        weight_decay=float(config["weight_decay"]),
-        gradient_accumulation=int(config["gradient_accumulation"]),
-        seed=int(config["seed"]),
-    )
+    if config.get("training_mode") == "mixed_budget_on_policy":
+        if not args.manifest:
+            raise ValueError("Mixed-budget PC training requires --manifest (train prompt IDs)")
+        manifest = json.loads(Path(args.manifest).read_text())
+        validate_large_scale_manifest(manifest)
+        for paths, split in ((args.train_caches, "train"), (args.validation_caches, "validation")):
+            seen = set()
+            for path in paths:
+                cache = torch.load(path, map_location="cpu", weights_only=False)
+                if int(cache["teacher_steps"]) != int(config["teacher_steps"]):
+                    raise ValueError(f"Teacher budget mismatch in warm-up cache: {path}")
+                if cache.get("source_manifest_fingerprint") != manifest["fingerprint"]:
+                    raise ValueError(f"Warm-up cache manifest mismatch: {path}")
+                name = cache["dataset"]
+                seen.update((name, int(r["dataset_index"])) for r in cache["records"])
+            expected = {
+                (name, i)
+                for name, entry in manifest["datasets"].items()
+                for i in entry[f"pc_{split}_indices"]
+            }
+            if seen != expected:
+                raise ValueError(f"Warm-up {split} prompt IDs differ from the manifest")
+        prompts = []
+        for name, entry in manifest["datasets"].items():
+            dataset = BenchmarkDataset(name)
+            if sha256_file(dataset.path) != entry["source_sha256"]:
+                raise ValueError(f"Dataset changed since manifest: {name}")
+            from treepc.evaluation.tasks import MAX_NEW_TOKENS
+
+            length = MAX_NEW_TOKENS[name]
+            prompts.extend((dataset.prompt(i), length) for i in entry["pc_train_indices"])
+        loaded.model = student
+        report = train_mixed_budget_pc(
+            DreamAdapter(loaded), train_dataset, validation_dataset, prompts, config, args.adapter_dir
+        )
+    else:
+        report = train_pc_student(
+            student,
+            train_dataset,
+            validation_dataset,
+            device=device,
+            output_dir=args.adapter_dir,
+            epochs=int(config["epochs"]),
+            learning_rate=float(config["learning_rate"]),
+            weight_decay=float(config["weight_decay"]),
+            gradient_accumulation=int(config["gradient_accumulation"]),
+            seed=int(config["seed"]),
+        )
     del student
     loaded.model = None
     torch.cuda.empty_cache()
@@ -109,6 +151,7 @@ def train(args: argparse.Namespace) -> None:
             "test_state_count": len(test_dataset) if test_dataset else 0,
             "device": str(device),
             "gpu_name": torch.cuda.get_device_name(device),
+            "model": loaded.metadata,
         }
     )
     write_json(args.report, report)
@@ -129,6 +172,11 @@ def main() -> None:
     fit.add_argument("--device", default="cuda:0")
     fit.add_argument("--adapter-dir", required=True)
     fit.add_argument("--report", required=True)
+    fit.add_argument("--manifest", help="Fixed split manifest for current-student rollouts")
+    fit.add_argument("--teacher-steps", type=int, help="Override the teacher budget recorded in this profile")
+    fit.add_argument(
+        "--student-budgets", nargs="+", type=int, help="Mixed-budget on-policy training schedules"
+    )
     args = parser.parse_args()
     if args.command == "build-cache":
         build_cache(args)

@@ -121,8 +121,7 @@ def run_parity(args: argparse.Namespace) -> None:
             rows.append(row)
             append_jsonl(raw_path, row)
             print(
-                f"parity {args.dataset} {args.steps}: {ordinal}/{len(indices)} "
-                f"passed={row['passed']}",
+                f"parity {args.dataset} {args.steps}: {ordinal}/{len(indices)} " f"passed={row['passed']}",
                 flush=True,
             )
     finally:
@@ -275,12 +274,10 @@ def run_quality(args: argparse.Namespace) -> None:
 def aggregate(args: argparse.Namespace) -> None:
     root = Path(args.input_dir)
     summaries = [
-        json.loads(path.read_text(encoding="utf-8"))
-        for path in root.glob("quality/*/steps_*/summary.json")
+        json.loads(path.read_text(encoding="utf-8")) for path in root.glob("quality/*/steps_*/summary.json")
     ]
     parity = [
-        json.loads(path.read_text(encoding="utf-8"))
-        for path in root.glob("parity/*/steps_*/summary.json")
+        json.loads(path.read_text(encoding="utf-8")) for path in root.glob("parity/*/steps_*/summary.json")
     ]
     if len(summaries) != 8 or len(parity) != 8:
         raise RuntimeError(
@@ -290,9 +287,19 @@ def aggregate(args: argparse.Namespace) -> None:
     csv_path = Path(args.output_csv)
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     fields = [
-        "dataset", "steps", "sample_size", "correct", "accuracy", "latency_mean_s",
-        "latency_median_s", "latency_p90_s", "output_tokens_per_s", "peak_memory_gib",
-        "mean_commit_per_step", "generation_errors", "scoring_failures",
+        "dataset",
+        "steps",
+        "sample_size",
+        "correct",
+        "accuracy",
+        "latency_mean_s",
+        "latency_median_s",
+        "latency_p90_s",
+        "output_tokens_per_s",
+        "peak_memory_gib",
+        "mean_commit_per_step",
+        "generation_errors",
+        "scoring_failures",
     ]
     with csv_path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
@@ -320,7 +327,9 @@ def aggregate(args: argparse.Namespace) -> None:
         )
     lines.extend(
         [
-            "", "## Official/custom parity", "",
+            "",
+            "## Official/custom parity",
+            "",
             "| Dataset | NFE | Passed examples | Pass rate |",
             "|---|---:|---:|---:|",
         ]
@@ -332,7 +341,9 @@ def aggregate(args: argparse.Namespace) -> None:
         )
     lines.extend(
         [
-            "", "## Audit", "",
+            "",
+            "## Audit",
+            "",
             f"- Quality summaries: {len(summaries)}/8.",
             f"- Parity summaries: {len(parity)}/8.",
             f"- Generation errors: {sum(row['generation_errors'] for row in summaries)}.",

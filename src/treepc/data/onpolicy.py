@@ -39,17 +39,13 @@ def collect_pc_mid_state(
             output, "entropy", 0.0, None, None
         )
         mask = output.masked_positions
-        budget = adapter.compute_commit_budget(
-            mask, timesteps[step], timesteps[step + 1], step == steps - 1
-        )
-        full_confidence = torch.full_like(
-            state.input_ids, -torch.inf, dtype=output.aligned_logits.dtype
-        )
+        budget = adapter.compute_commit_budget(mask, timesteps[step], timesteps[step + 1], step == steps - 1)
+        full_confidence = torch.full_like(state.input_ids, -torch.inf, dtype=scheduler_confidence.dtype)
         full_confidence[mask] = scheduler_confidence
         proposed_full = torch.full_like(state.input_ids, adapter.mask_token_id)
         proposed_full[mask] = proposals
         if step == capture_step:
-            count = min(candidate_size, int(mask.sum().item()))
+            count = min(candidate_size, budget, int(mask.sum().item()))
             candidates = torch.topk(full_confidence, count, dim=-1).indices[0]
             candidates = torch.sort(candidates).values
             captured = {
@@ -146,12 +142,8 @@ def _support_matrix_from_log_probs(
     mask = mask_cpu.to(base_log_probs.device)
     base_values = base_log_probs.gather(-1, ids).masked_fill(~mask, -torch.inf)
     target_values = target_log_probs.gather(-1, ids).masked_fill(~mask, -torch.inf)
-    base_other = (
-        1 - (base_values.exp() * mask).sum(dim=-1)
-    ).clamp_min(1e-12).log()
-    target_other = (
-        1 - (target_values.exp() * mask).sum(dim=-1)
-    ).clamp_min(1e-12).log()
+    base_other = (1 - (base_values.exp() * mask).sum(dim=-1)).clamp_min(1e-12).log()
+    target_other = (1 - (target_values.exp() * mask).sum(dim=-1)).clamp_min(1e-12).log()
     return (
         ids_cpu,
         mask_cpu,
@@ -185,17 +177,11 @@ def label_pc_onpolicy_record(
         teacher_base.aligned_hidden[0, candidates].float(),
         dim=-1,
     )
-    teacher_to_pc_kl = categorical_kl_from_logits(
-        teacher_base_logits, pc_base_logits
-    )
+    teacher_to_pc_kl = categorical_kl_from_logits(teacher_base_logits, pc_base_logits)
     teacher_parent_probabilities = torch.softmax(teacher_base_logits.float(), dim=-1)
-    sampled_parent_tokens = torch.empty(
-        (nodes, parent_samples), dtype=torch.long, device="cpu"
-    )
+    sampled_parent_tokens = torch.empty((nodes, parent_samples), dtype=torch.long, device="cpu")
     parent_probabilities = torch.empty((nodes, parent_samples), dtype=torch.float32)
-    directed_samples = torch.zeros(
-        (nodes, parent_samples, nodes), dtype=torch.float32, device=teacher.device
-    )
+    directed_samples = torch.zeros((nodes, parent_samples, nodes), dtype=torch.float32, device=teacher.device)
     width = 2 * top_k + 1
     support_ids = torch.zeros((nodes, parent_samples, nodes, width), dtype=torch.long)
     support_mask = torch.zeros((nodes, parent_samples, nodes, width), dtype=torch.bool)
@@ -216,9 +202,9 @@ def label_pc_onpolicy_record(
         for sample_index, parent_token in enumerate(parent_tokens):
             counterfactual = state_from_record(teacher, record)
             counterfactual.input_ids[0, candidates[parent]] = parent_token
-            conditional = teacher.forward_state(
-                counterfactual, need_hidden=False
-            ).aligned_logits[0, candidates]
+            conditional = teacher.forward_state(counterfactual, need_hidden=False).aligned_logits[
+                0, candidates
+            ]
             conditional_log_probs = torch.log_softmax(conditional.float(), -1)
             conditional_top_ids = torch.topk(conditional, top_k, dim=-1).indices
             dependency = categorical_kl_from_logits(conditional, teacher_base_logits)
@@ -246,9 +232,7 @@ def label_pc_onpolicy_record(
             "parent_sampling_distribution": "teacher_posterior",
             "parent_samples": parent_samples,
             "aligned_hidden": record["aligned_hidden"].float(),
-            "teacher_aligned_hidden": clone_cpu(
-                teacher_base.aligned_hidden[0, candidates]
-            ),
+            "teacher_aligned_hidden": clone_cpu(teacher_base.aligned_hidden[0, candidates]),
             "pc_teacher_hidden_cosine": clone_cpu(hidden_cosine),
             "teacher_to_pc_posterior_kl": clone_cpu(teacher_to_pc_kl),
             "candidate_confidence": clone_cpu(max_token_probability(pc_base_logits)),

@@ -96,9 +96,7 @@ def main() -> None:
                         "global_scale": bundle.correction_head.global_scale_value(),
                         "dream_nfe": int(timings["dream_forwards"]),
                         "tree_steps_used": sum(item["tree_used"] for item in trace),
-                        "corrected_token_flips": sum(
-                            item["corrected_token_flips"] for item in trace
-                        ),
+                        "corrected_token_flips": sum(item["corrected_token_flips"] for item in trace),
                         "mean_tree_depth": statistics.mean(
                             item["tree_depth"] for item in trace if item["candidate_size"] > 0
                         ),
@@ -131,20 +129,12 @@ def main() -> None:
                 "baseline_accuracy": statistics.mean(row["baseline_pass"] for row in group),
                 "treepc_accuracy": statistics.mean(row["treepc_pass"] for row in group),
                 "quality_delta": statistics.mean(row["quality_delta"] for row in group),
-                "baseline_latency_mean_s": statistics.mean(
-                    row["baseline_latency_s"] for row in group
-                ),
+                "baseline_latency_mean_s": statistics.mean(row["baseline_latency_s"] for row in group),
                 "treepc_latency_mean_s": statistics.mean(row["treepc_latency_s"] for row in group),
-                "dependency_head_mean_s": statistics.mean(
-                    row["dependency_head_s"] for row in group
-                ),
+                "dependency_head_mean_s": statistics.mean(row["dependency_head_s"] for row in group),
                 "mst_mean_s": statistics.mean(row["mst_s"] for row in group),
-                "correction_head_mean_s": statistics.mean(
-                    row["correction_head_s"] for row in group
-                ),
-                "mean_corrected_token_flips": statistics.mean(
-                    row["corrected_token_flips"] for row in group
-                ),
+                "correction_head_mean_s": statistics.mean(row["correction_head_s"] for row in group),
+                "mean_corrected_token_flips": statistics.mean(row["corrected_token_flips"] for row in group),
             }
         )
     write_json(

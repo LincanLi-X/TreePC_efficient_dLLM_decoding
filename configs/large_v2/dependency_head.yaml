@@ -5,7 +5,7 @@ relative_position_size: 32
 max_relative_position: 512
 pair_hidden_size: 256
 pair_chunk_size: 4096
-# Candidate counts vary with NFE, so batching states would require padding.
+# Equal-size graph buckets are supported; one state per update is the conservative default.
 epochs: 40
 batch_size: 1
 learning_rate: 0.0003

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "treepc"
-version = "0.5.0"
-description = "Posterior-Consistency Dream decoding with learned dependency and correction heads"
+version = "0.6.0"
+description = "Posterior-consistent structured diffusion decoding for Dream and LLaDA"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -20,6 +20,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6", "networkx>=3.0"]
 assets = ["huggingface_hub>=0.28"]
+evaluation = ["math-verify==0.8.0", "antlr4-python3-runtime==4.13.2", "datasets>=3,<5"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -15,9 +15,7 @@ from treepc.utils.io import sha256_file, write_json
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Build multi-sample Dream counterfactual dependency labels"
-    )
+    parser = argparse.ArgumentParser(description="Build multi-sample Dream counterfactual dependency labels")
     parser.add_argument("--trajectory", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--summary", required=True)
@@ -54,9 +52,7 @@ def main() -> None:
         records.sort(key=lambda row: (row["sample_id"], int(row["step_index"])))
         first = bundles[0]
         merged = {
-            key: value
-            for key, value in first.items()
-            if key not in {"records", "shard_index", "num_shards"}
+            key: value for key, value in first.items() if key not in {"records", "shard_index", "num_shards"}
         }
         merged["records"] = records
         validate_counterfactual_bundle(merged)
@@ -69,8 +65,7 @@ def main() -> None:
                 "dataset": merged["dataset"],
                 "record_count": len(records),
                 "counterfactual_forwards": sum(
-                    record["candidate_positions"].numel()
-                    * int(record.get("parent_samples", 1))
+                    record["candidate_positions"].numel() * int(record.get("parent_samples", 1))
                     for record in records
                 ),
                 "cache_path": str(output),
@@ -124,9 +119,7 @@ def main() -> None:
     validate_counterfactual_bundle(bundle)
     output.parent.mkdir(parents=True, exist_ok=True)
     torch.save(bundle, output)
-    directed_values = torch.cat(
-        [record["directed_dependency"].flatten() for record in records]
-    )
+    directed_values = torch.cat([record["directed_dependency"].flatten() for record in records])
     summary = {
         "kind": "counterfactual_cache",
         "dataset": trajectory["dataset"],

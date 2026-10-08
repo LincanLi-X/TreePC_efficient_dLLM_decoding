@@ -23,7 +23,8 @@ def build_nested_pc_bundle(trajectory_path: str | Path) -> dict[str, Any]:
     for sample_id, sample_records in grouped.items():
         sample_records.sort(key=lambda row: int(row["step_index"]))
         for coarse, fine in zip(sample_records[:-1], sample_records[1:]):
-            anchor_positions = fine["candidate_positions"].long()
+            all_masked = "marginal_positions" in fine
+            anchor_positions = fine["marginal_positions" if all_masked else "candidate_positions"].long()
             fine_mask_values = fine["state_token_ids"][anchor_positions]
             if not coarse["state_token_ids"][anchor_positions].eq(fine_mask_values).all():
                 raise ValueError(f"Nested PC anchors are not masked in coarse state for {sample_id}")
@@ -39,9 +40,13 @@ def build_nested_pc_bundle(trajectory_path: str | Path) -> dict[str, Any]:
                     "teacher_step_index": int(fine["step_index"]),
                     "teacher_timestep": float(fine["timestep"]),
                     "anchor_positions": anchor_positions,
-                    "teacher_topk_ids": fine["base_topk_ids"].long(),
-                    "teacher_topk_log_probs": fine["base_topk_log_probs"].float(),
-                    "teacher_tail_mass": fine["base_tail_mass"].float(),
+                    "teacher_topk_ids": fine["marginal_topk_ids" if all_masked else "base_topk_ids"].long(),
+                    "teacher_topk_log_probs": fine[
+                        "marginal_topk_log_probs" if all_masked else "base_topk_log_probs"
+                    ].float(),
+                    "teacher_tail_mass": fine[
+                        "marginal_tail_mass" if all_masked else "base_tail_mass"
+                    ].float(),
                     "teacher_final_tokens": fine["final_teacher_tokens"][anchor_positions].long(),
                 }
             )

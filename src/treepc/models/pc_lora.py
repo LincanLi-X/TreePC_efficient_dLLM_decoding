@@ -15,6 +15,8 @@ def create_pc_lora_student(
     dropout: float = 0.05,
     target_modules: tuple[str, ...] = ("q_proj", "k_proj", "v_proj", "o_proj"),
 ) -> PeftModel:
+    if getattr(model.config, "model_type", "") == "llada":
+        target_modules = ("q_proj", "k_proj", "v_proj", "attn_out")
     config = LoraConfig(
         r=rank,
         lora_alpha=alpha,

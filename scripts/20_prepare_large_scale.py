@@ -23,6 +23,7 @@ def main() -> None:
         pc_sizes=config["pc_lora"]["splits"],
         head_sizes=config["heads"]["splits"],
         require_identical_splits=bool(config.get("shared_pc_and_head_splits", False)),
+        protocol=config.get("protocol", "internal"),
     )
     output = Path(args.output)
     if args.validate_existing:
@@ -40,11 +41,7 @@ def main() -> None:
             raise FileExistsError(output)
         write_json(output, manifest)
     counts = {
-        dataset: {
-            key: len(value)
-            for key, value in row.items()
-            if key.endswith("_indices")
-        }
+        dataset: {key: len(value) for key, value in row.items() if key.endswith("_indices")}
         for dataset, row in manifest["datasets"].items()
     }
     print(f"large-scale manifest: {args.output}")

@@ -46,30 +46,16 @@ def build_counterfactual_record(
     final_targets = record["final_teacher_tokens"].to(adapter.device)[candidates]
     base_top_ids, base_top_log_probs, base_tail = topk_log_probs_with_tail(base_logits, top_k)
     base_target_nll = categorical_nll_from_logits(base_logits, final_targets)
-    directed_samples = torch.zeros(
-        (nodes, parent_samples, nodes), dtype=torch.float32, device=adapter.device
-    )
-    conditional_top_ids = torch.empty(
-        (nodes, parent_samples, nodes, top_k), dtype=torch.long, device="cpu"
-    )
-    conditional_top_log_probs = torch.empty_like(
-        conditional_top_ids, dtype=torch.float32
-    )
-    conditional_tail = torch.empty(
-        (nodes, parent_samples, nodes), dtype=torch.float32, device="cpu"
-    )
+    directed_samples = torch.zeros((nodes, parent_samples, nodes), dtype=torch.float32, device=adapter.device)
+    conditional_top_ids = torch.empty((nodes, parent_samples, nodes, top_k), dtype=torch.long, device="cpu")
+    conditional_top_log_probs = torch.empty_like(conditional_top_ids, dtype=torch.float32)
+    conditional_tail = torch.empty((nodes, parent_samples, nodes), dtype=torch.float32, device="cpu")
     conditional_target_nll = torch.empty_like(conditional_tail)
-    sampled_parent_tokens = torch.empty(
-        (nodes, parent_samples), dtype=torch.long, device="cpu"
-    )
+    sampled_parent_tokens = torch.empty((nodes, parent_samples), dtype=torch.long, device="cpu")
     parent_probabilities = torch.empty_like(sampled_parent_tokens, dtype=torch.float32)
-    top1_in_base_topk = torch.empty(
-        (nodes, parent_samples, nodes), dtype=torch.bool, device="cpu"
-    )
+    top1_in_base_topk = torch.empty((nodes, parent_samples, nodes), dtype=torch.bool, device="cpu")
     support_width = 2 * top_k + 1
-    support_ids = torch.zeros(
-        (nodes, parent_samples, nodes, support_width), dtype=torch.long, device="cpu"
-    )
+    support_ids = torch.zeros((nodes, parent_samples, nodes, support_width), dtype=torch.long, device="cpu")
     support_mask = torch.zeros_like(support_ids, dtype=torch.bool)
     base_support_log_probs = torch.full(
         (nodes, parent_samples, nodes, support_width),
@@ -78,23 +64,16 @@ def build_counterfactual_record(
         device="cpu",
     )
     conditional_support_log_probs = torch.full_like(base_support_log_probs, -torch.inf)
-    base_other_log_probs = torch.empty(
-        (nodes, parent_samples, nodes), dtype=torch.float32, device="cpu"
-    )
+    base_other_log_probs = torch.empty((nodes, parent_samples, nodes), dtype=torch.float32, device="cpu")
     conditional_other_log_probs = torch.empty_like(base_other_log_probs)
     base_full_log_probs = torch.log_softmax(base_logits.float(), dim=-1)
     for parent_index in range(nodes):
         parent_seed = (
-            seed
-            + int(record["dataset_index"]) * 1009
-            + int(record["step_index"]) * 31
-            + parent_index
+            seed + int(record["dataset_index"]) * 1009 + int(record["step_index"]) * 31 + parent_index
         )
         seed_everything(parent_seed)
         probabilities = torch.softmax(base_logits[parent_index].float(), dim=-1)
-        parent_tokens = torch.multinomial(
-            probabilities, parent_samples, replacement=True
-        )
+        parent_tokens = torch.multinomial(probabilities, parent_samples, replacement=True)
         sampled_parent_tokens[parent_index] = parent_tokens.cpu()
         parent_probabilities[parent_index] = probabilities[parent_tokens].cpu()
         for sample_index, sampled_token in enumerate(parent_tokens):
@@ -113,9 +92,7 @@ def build_counterfactual_record(
             conditional_target_nll[parent_index, sample_index] = categorical_nll_from_logits(
                 conditional_logits, final_targets
             ).cpu()
-            top1_in_base_topk[parent_index, sample_index] = (
-                ids[:, :1] == base_top_ids
-            ).any(dim=-1).cpu()
+            top1_in_base_topk[parent_index, sample_index] = (ids[:, :1] == base_top_ids).any(dim=-1).cpu()
             for child_index in range(nodes):
                 union = torch.unique(
                     torch.cat(
@@ -142,9 +119,7 @@ def build_counterfactual_record(
     directed = directed_samples.mean(dim=1)
     symmetric = 0.5 * (directed + directed.transpose(0, 1))
     result = {
-        key: value
-        for key, value in record.items()
-        if key not in {"aligned_hidden", "base_topk_logits"}
+        key: value for key, value in record.items() if key not in {"aligned_hidden", "base_topk_logits"}
     }
     result.update(
         {

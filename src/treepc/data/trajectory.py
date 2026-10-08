@@ -13,8 +13,7 @@ def stratified_step_indices(total_steps: int, states_per_example: int) -> list[i
     if states_per_example <= 0 or states_per_example > total_steps:
         raise ValueError("states_per_example must be in [1, total_steps]")
     return [
-        int((2 * index + 1) * total_steps / (2 * states_per_example))
-        for index in range(states_per_example)
+        int((2 * index + 1) * total_steps / (2 * states_per_example)) for index in range(states_per_example)
     ]
 
 
@@ -46,21 +45,23 @@ def collect_teacher_trajectory(
             output, "entropy", 0.0, None, None
         )
         mask = output.masked_positions
-        full_confidence = torch.full_like(state.input_ids, -torch.inf, dtype=output.aligned_logits.dtype)
+        full_confidence = torch.full_like(state.input_ids, -torch.inf, dtype=scheduler_confidence.dtype)
         full_confidence[mask] = scheduler_confidence
         proposed_full = torch.full_like(state.input_ids, adapter.mask_token_id)
         proposed_full[mask] = proposals
         remaining = int(mask.sum().item())
         is_last = step == teacher_steps - 1
         budget = adapter.compute_commit_budget(mask, timesteps[step], timesteps[step + 1], is_last)
-        commit_positions = torch.topk(full_confidence, budget, dim=-1).indices if budget else torch.empty(
-            (1, 0), dtype=torch.long, device=adapter.device
+        commit_positions = (
+            torch.topk(full_confidence, budget, dim=-1).indices
+            if budget
+            else torch.empty((1, 0), dtype=torch.long, device=adapter.device)
         )
         if step in selected_steps:
             marginal_positions = mask[0].nonzero(as_tuple=False).flatten()
             marginal_logits = output.aligned_logits[0, marginal_positions]
-            marginal_top_ids, marginal_top_log_probs, marginal_tail_mass = (
-                topk_log_probs_with_tail(marginal_logits, top_k)
+            marginal_top_ids, marginal_top_log_probs, marginal_tail_mass = topk_log_probs_with_tail(
+                marginal_logits, top_k
             )
             count = min(candidate_size, remaining)
             candidate_positions = torch.topk(full_confidence, count, dim=-1).indices[0]
@@ -89,9 +90,7 @@ def collect_teacher_trajectory(
                     "marginal_topk_log_probs": clone_cpu(marginal_top_log_probs),
                     "marginal_tail_mass": clone_cpu(marginal_tail_mass),
                     "candidate_positions": clone_cpu(candidate_positions),
-                    "candidate_confidence": clone_cpu(
-                        max_token_probability(candidate_logits)
-                    ),
+                    "candidate_confidence": clone_cpu(max_token_probability(candidate_logits)),
                     "candidate_confidence_type": "max_token_probability",
                     "base_sampled_tokens": clone_cpu(proposed_full[0, candidate_positions]),
                     "base_topk_ids": clone_cpu(top_ids),

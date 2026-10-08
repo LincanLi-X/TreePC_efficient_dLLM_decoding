@@ -52,9 +52,7 @@ class DependencyHead(nn.Module):
             nn.Linear(hidden_size, projection_size),
             nn.GELU(),
         )
-        self.relative_position_embedding = nn.Embedding(
-            2 * max_relative_position + 1, relative_position_size
-        )
+        self.relative_position_embedding = nn.Embedding(2 * max_relative_position + 1, relative_position_size)
         pair_size = 4 * projection_size + relative_position_size + timestep_size
         self.edge_mlp = nn.Sequential(
             nn.Linear(pair_size, pair_hidden_size),
@@ -100,9 +98,7 @@ class DependencyHead(nn.Module):
         return legacy
 
     def _relative_position_indices(self, left: Tensor, right: Tensor) -> Tensor:
-        relative = (left - right).clamp(
-            -self.max_relative_position, self.max_relative_position
-        )
+        relative = (left - right).clamp(-self.max_relative_position, self.max_relative_position)
         return relative.long() + self.max_relative_position
 
     def forward(
@@ -124,15 +120,11 @@ class DependencyHead(nn.Module):
             valid_mask = torch.ones((batch, nodes), dtype=torch.bool, device=hidden.device)
         elif valid_mask.ndim == 1:
             valid_mask = valid_mask.unsqueeze(0)
-        with torch.autocast(
-            device_type=hidden.device.type, dtype=torch.bfloat16, enabled=hidden.is_cuda
-        ):
+        with torch.autocast(device_type=hidden.device.type, dtype=torch.bfloat16, enabled=hidden.is_cuda):
             projected = self.node_proj(hidden.float())
             row = torch.arange(nodes, device=hidden.device).repeat_interleave(nodes)
             column = torch.arange(nodes, device=hidden.device).repeat(nodes)
-            time = timestep_embedding(
-                torch.as_tensor(timestep, device=hidden.device), self.timestep_size
-            )
+            time = timestep_embedding(torch.as_tensor(timestep, device=hidden.device), self.timestep_size)
             if time.shape[0] == 1 and batch > 1:
                 time = time.expand(batch, -1)
             chunks: list[Tensor] = []

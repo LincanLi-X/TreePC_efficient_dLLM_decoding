@@ -20,6 +20,7 @@ from treepc.data.datasets import BenchmarkDataset, validate_large_scale_manifest
 from treepc.data.onpolicy import collect_pc_mid_state, label_pc_onpolicy_record
 from treepc.dream.adapter import DreamAdapter
 from treepc.dream.loader import load_dream, load_model_config, resolve_model_dir
+from treepc.evaluation.tasks import MAX_NEW_TOKENS
 from treepc.models.correction_head import ConditionalCorrectionHead
 from treepc.models.dependency_head import DependencyHead
 from treepc.models.pc_lora import load_pc_lora
@@ -32,8 +33,6 @@ from treepc.training.correction_trainer import (
 from treepc.training.dependency_trainer import evaluate_dependency_head, train_dependency_head
 from treepc.utils.io import sha256_file, write_json
 from treepc.utils.seed import seed_everything
-
-MAX_NEW_TOKENS = {"gsm8k": 256, "humaneval": 512}
 
 
 def collect(args: argparse.Namespace) -> None:
@@ -55,6 +54,8 @@ def collect(args: argparse.Namespace) -> None:
     adapter = DreamAdapter(loaded)
     records = []
     dataset = BenchmarkDataset(args.dataset)
+    if sha256_file(dataset.path) != entry["source_sha256"]:
+        raise ValueError(f"Dataset changed since manifest: {args.dataset}")
     started = time.perf_counter()
     try:
         for ordinal, index in enumerate(indices, 1):
@@ -86,6 +87,8 @@ def collect(args: argparse.Namespace) -> None:
         "dataset": args.dataset,
         "partition": f"head_{args.split}",
         "manifest_fingerprint": manifest["fingerprint"],
+        "pc_adapter_sha256": sha256_file(Path(args.pc_lora) / "adapter_model.safetensors"),
+        "backbone": loaded.metadata["backbone"],
         "shard_index": args.shard_index,
         "num_shards": args.num_shards,
         "records": records,
@@ -149,6 +152,8 @@ def label(args: argparse.Namespace) -> None:
         "eligible_for_head_training": True,
         "partition": bundle.get("partition", "pc_onpolicy_calibration"),
         "manifest_fingerprint": bundle.get("manifest_fingerprint"),
+        "pc_adapter_sha256": bundle.get("pc_adapter_sha256"),
+        "backbone": bundle.get("backbone"),
         "shard_index": bundle.get("shard_index", 0),
         "num_shards": bundle.get("num_shards", 1),
         "target_type": f"pc_onpolicy_mc_teacher_counterfactual_s{args.parent_samples}",
@@ -171,8 +176,7 @@ def label(args: argparse.Namespace) -> None:
                 "parent_samples": args.parent_samples,
                 "parent_sampling_distribution": "teacher_posterior",
                 "counterfactual_forwards": sum(
-                    int(record["candidate_positions"].numel()) * args.parent_samples
-                    for record in records
+                    int(record["candidate_positions"].numel()) * args.parent_samples for record in records
                 ),
                 "cache_path": str(output),
                 "cache_sha256": sha256_file(output),
@@ -185,23 +189,13 @@ def recalibrate(args: argparse.Namespace) -> None:
     bundle = torch.load(args.onpolicy_cache, map_location="cpu", weights_only=False)
     onpolicy_records = bundle["records"]
     train_records = [record for record in onpolicy_records if record["calibration_fold"] == "train"]
-    validation_records = [
-        record for record in onpolicy_records if record["calibration_fold"] == "validation"
-    ]
-    all_base_records = load_training_records(
-        args.base_trajectory, args.base_counterfactual
-    )
-    gsm_base = [
-        record for record in all_base_records if not record["sample_id"].startswith("HumanEval/")
-    ]
-    humaneval_base = [
-        record for record in all_base_records if record["sample_id"].startswith("HumanEval/")
-    ]
+    validation_records = [record for record in onpolicy_records if record["calibration_fold"] == "validation"]
+    all_base_records = load_training_records(args.base_trajectory, args.base_counterfactual)
+    gsm_base = [record for record in all_base_records if not record["sample_id"].startswith("HumanEval/")]
+    humaneval_base = [record for record in all_base_records if record["sample_id"].startswith("HumanEval/")]
     gsm_count = len(train_records) // 2
     base_records = gsm_base[:gsm_count] + humaneval_base[: len(train_records) - gsm_count]
-    dependency_value = torch.load(
-        args.dependency_checkpoint, map_location="cpu", weights_only=False
-    )
+    dependency_value = torch.load(args.dependency_checkpoint, map_location="cpu", weights_only=False)
     dependency = DependencyHead(**dependency_value["config"])
     dependency.load_compatible_state_dict(dependency_value["state_dict"])
     dependency.to(device)
@@ -212,9 +206,7 @@ def recalibrate(args: argparse.Namespace) -> None:
     )
     dependency_report = train_dependency_head(
         dependency,
-        ConcatDataset(
-            [DependencyCacheDataset(train_records), DependencyCacheDataset(base_records)]
-        ),
+        ConcatDataset([DependencyCacheDataset(train_records), DependencyCacheDataset(base_records)]),
         DependencyCacheDataset(validation_records),
         device=device,
         output=args.output_dependency,
@@ -225,31 +217,19 @@ def recalibrate(args: argparse.Namespace) -> None:
         symmetry_weight=0.01,
         seed=args.seed,
     )
-    final_dependency_value = torch.load(
-        args.output_dependency, map_location="cpu", weights_only=False
-    )
+    final_dependency_value = torch.load(args.output_dependency, map_location="cpu", weights_only=False)
     dependency.load_compatible_state_dict(final_dependency_value["state_dict"])
 
     model_config = load_model_config()
-    input_embedding, output_embedding = load_dream_embedding_weights(
-        resolve_model_dir(model_config), device
-    )
-    correction_value = torch.load(
-        args.correction_checkpoint, map_location="cpu", weights_only=False
-    )
-    correction = ConditionalCorrectionHead(
-        input_embedding, output_embedding, **correction_value["config"]
-    )
+    input_embedding, output_embedding = load_dream_embedding_weights(resolve_model_dir(model_config), device)
+    correction_value = torch.load(args.correction_checkpoint, map_location="cpu", weights_only=False)
+    correction = ConditionalCorrectionHead(input_embedding, output_embedding, **correction_value["config"])
     correction.load_compatible_state_dict(correction_value["state_dict"])
     correction.to(device)
     learned_train_pairs = select_learned_tree_pairs(dependency, train_records, device)
     learned_base_pairs = select_learned_tree_pairs(dependency, base_records, device)
-    learned_validation_pairs = select_learned_tree_pairs(
-        dependency, validation_records, device
-    )
-    validation_dataset = CorrectionCacheDataset(
-        validation_records, selected_pairs=learned_validation_pairs
-    )
+    learned_validation_pairs = select_learned_tree_pairs(dependency, validation_records, device)
+    validation_dataset = CorrectionCacheDataset(validation_records, selected_pairs=learned_validation_pairs)
     before_correction = evaluate_correction_head(
         correction, DataLoader(validation_dataset, batch_size=64), device
     )
@@ -257,12 +237,8 @@ def recalibrate(args: argparse.Namespace) -> None:
         correction,
         ConcatDataset(
             [
-                CorrectionCacheDataset(
-                    train_records, selected_pairs=learned_train_pairs
-                ),
-                CorrectionCacheDataset(
-                    base_records, selected_pairs=learned_base_pairs
-                ),
+                CorrectionCacheDataset(train_records, selected_pairs=learned_train_pairs),
+                CorrectionCacheDataset(base_records, selected_pairs=learned_base_pairs),
             ]
         ),
         validation_dataset,
@@ -274,19 +250,11 @@ def recalibrate(args: argparse.Namespace) -> None:
         delta_weight=1e-3,
         seed=args.seed,
     )
-    final_correction_value = torch.load(
-        args.output_correction, map_location="cpu", weights_only=False
-    )
+    final_correction_value = torch.load(args.output_correction, map_location="cpu", weights_only=False)
     correction.load_state_dict(final_correction_value["state_dict"])
-    gate = calibrate_tree_gate(
-        dependency, correction, validation_records, device, batch_size=64
-    )
-    hidden_cosines = torch.cat(
-        [record["pc_teacher_hidden_cosine"].float() for record in onpolicy_records]
-    )
-    posterior_kls = torch.cat(
-        [record["teacher_to_pc_posterior_kl"].float() for record in onpolicy_records]
-    )
+    gate = calibrate_tree_gate(dependency, correction, validation_records, device, batch_size=64)
+    hidden_cosines = torch.cat([record["pc_teacher_hidden_cosine"].float() for record in onpolicy_records])
+    posterior_kls = torch.cat([record["teacher_to_pc_posterior_kl"].float() for record in onpolicy_records])
     write_json(
         args.report,
         {
@@ -316,7 +284,7 @@ def main() -> None:
     collect_parser = sub.add_parser("collect")
     collect_parser.add_argument("--pc-lora", required=True)
     collect_parser.add_argument("--manifest", required=True)
-    collect_parser.add_argument("--dataset", choices=["gsm8k", "humaneval"], required=True)
+    collect_parser.add_argument("--dataset", choices=["gsm8k", "humaneval", "math500", "mbpp"], required=True)
     collect_parser.add_argument("--split", choices=["train", "validation", "test"], required=True)
     collect_parser.add_argument("--output", required=True)
     collect_parser.add_argument("--summary")

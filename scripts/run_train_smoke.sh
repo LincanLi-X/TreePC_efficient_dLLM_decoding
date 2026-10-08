@@ -33,7 +33,7 @@ export TREEPC_MIN_FREE_MEMORY_GIB="${TREEPC_MIN_FREE_MEMORY_GIB:-40}"
 export PYTHONPATH="${treepc_project_dir}/src${PYTHONPATH:+:${PYTHONPATH}}"
 export PYTHONNOUSERSITE=1
 export TOKENIZERS_PARALLELISM=false
-export HF_HOME="${TREEPC_HF_HOME:-${treepc_project_dir}/.hf_cache}"
+export HF_HOME="${TREEPC_HF_HOME:-${TREEPC_RUN_DIR}/.hf_cache}"
 
 mkdir -p "${TREEPC_RUN_DIR}" "${HF_HOME}"
 cd "${treepc_project_dir}"

@@ -19,7 +19,7 @@ from treepc.data.cache_dataset import (
 from treepc.dream.loader import load_model_config, resolve_model_dir
 from treepc.models.correction_head import ConditionalCorrectionHead
 from treepc.models.dependency_head import DependencyHead
-from treepc.training.correction_trainer import evaluate_correction_head
+from treepc.training.correction_trainer import attach_predicted_weights, evaluate_correction_head
 from treepc.training.dependency_trainer import evaluate_dependency_head
 from treepc.utils.io import write_json
 
@@ -84,6 +84,7 @@ def main() -> None:
     dependency = DependencyHead(**dependency_value["config"])
     dependency.load_compatible_state_dict(dependency_value["state_dict"])
     dependency.to(device)
+    attach_predicted_weights(dependency, records, device)
 
     correction_value = torch.load(args.correction_checkpoint, map_location="cpu", weights_only=False)
     correction_config = yaml.safe_load(Path(args.correction_config).read_text(encoding="utf-8"))
@@ -95,7 +96,7 @@ def main() -> None:
 
     by_dataset = {
         name: [record for record in records if record.get("dataset") == name]
-        for name in ("gsm8k", "humaneval")
+        for name in sorted({record["dataset"] for record in records})
     }
     metrics = {}
     for name, selected in (*by_dataset.items(), ("combined", records)):
@@ -121,7 +122,7 @@ def main() -> None:
         }
 
     rq2_rows = []
-    for dataset in ("gsm8k", "humaneval"):
+    for dataset in by_dataset:
         for student_nfe in args.steps:
             selected = [
                 record
@@ -142,6 +143,7 @@ def main() -> None:
             "schema": "treepc.heldout_head_evaluation.v1",
             "partition": "head_test",
             "standard_benchmark_claim_allowed": False,
+            "conditional_metric_definition": "cached_support_fixed_base_other_surrogate_kl",
             "metrics": metrics,
         },
     )

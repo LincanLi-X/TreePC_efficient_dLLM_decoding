@@ -19,10 +19,9 @@ from treepc.data.datasets import (
 from treepc.data.trajectory import collect_teacher_trajectory
 from treepc.dream.adapter import DreamAdapter
 from treepc.dream.loader import load_dream
+from treepc.evaluation.tasks import MAX_NEW_TOKENS
 from treepc.utils.io import sha256_file, write_json
 from treepc.utils.seed import seed_everything
-
-MAX_NEW_TOKENS = {"gsm8k": 256, "humaneval": 512}
 
 
 def parse_args() -> argparse.Namespace:
@@ -45,7 +44,7 @@ def parse_args() -> argparse.Namespace:
     prepare_stage3.add_argument("--humaneval-train-size", type=int, default=24)
     prepare_stage3.add_argument("--humaneval-validation-size", type=int, default=8)
     collect = sub.add_parser("collect")
-    collect.add_argument("--dataset", choices=["gsm8k", "humaneval"], required=True)
+    collect.add_argument("--dataset", choices=["gsm8k", "humaneval", "math500", "mbpp"], required=True)
     collect.add_argument("--manifest", required=True)
     collect.add_argument("--output", required=True)
     collect.add_argument("--summary", required=True)
@@ -64,7 +63,7 @@ def parse_args() -> argparse.Namespace:
     merge.add_argument("--inputs", nargs="+", required=True)
     merge.add_argument("--summaries", nargs="+", required=True)
     merge.add_argument("--manifest", required=True)
-    merge.add_argument("--dataset", choices=["gsm8k", "humaneval"], required=True)
+    merge.add_argument("--dataset", choices=["gsm8k", "humaneval", "math500", "mbpp"], required=True)
     merge.add_argument("--output", required=True)
     merge.add_argument("--summary", required=True)
     return parser.parse_args()
@@ -211,9 +210,7 @@ def merge(args: argparse.Namespace) -> None:
         raise ValueError(f"Merged sample IDs differ from manifest: {actual_ids ^ set(desired_ids)}")
     summaries = [json.loads(Path(path).read_text(encoding="utf-8")) for path in args.summaries]
     example_by_id = {
-        example["sample_id"]: example
-        for summary in summaries
-        for example in summary["examples"]
+        example["sample_id"]: example for summary in summaries for example in summary["examples"]
     }
     examples = [example_by_id[sample_id] for sample_id in desired_ids]
     first = bundles[0]
@@ -227,9 +224,7 @@ def merge(args: argparse.Namespace) -> None:
         "states_per_example": first["states_per_example"],
         "candidate_size": first["candidate_size"],
         "top_k": first["top_k"],
-        "rq1_marginal_targets": first.get(
-            "rq1_marginal_targets", "legacy_candidate_positions_only"
-        ),
+        "rq1_marginal_targets": first.get("rq1_marginal_targets", "legacy_candidate_positions_only"),
         "manifest_fingerprint": manifest["fingerprint"],
         "records": records,
     }
@@ -249,9 +244,7 @@ def merge(args: argparse.Namespace) -> None:
             "teacher_steps": first["teacher_steps"],
             "states_per_example": first["states_per_example"],
             "candidate_size": first["candidate_size"],
-            "rq1_marginal_targets": first.get(
-                "rq1_marginal_targets", "legacy_candidate_positions_only"
-            ),
+            "rq1_marginal_targets": first.get("rq1_marginal_targets", "legacy_candidate_positions_only"),
             "cache_path": str(output),
             "cache_sha256": sha256_file(output),
             "diagnostic_only": bool(first.get("diagnostic_only", True)),

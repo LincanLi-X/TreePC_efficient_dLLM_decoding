@@ -19,6 +19,7 @@ from treepc.dream.loader import load_model_config, resolve_model_dir
 from treepc.models.correction_head import ConditionalCorrectionHead
 from treepc.models.dependency_head import DependencyHead
 from treepc.training.correction_trainer import (
+    attach_predicted_weights,
     calibrate_tree_gate,
     evaluate_correction_head,
     select_learned_tree_pairs,
@@ -71,17 +72,21 @@ def main() -> None:
             args.validation_trajectories, args.validation_counterfactuals
         )
     model_config = load_model_config()
-    input_embedding, output_embedding = load_dream_embedding_weights(
-        resolve_model_dir(model_config), device
-    )
+    input_embedding, output_embedding = load_dream_embedding_weights(resolve_model_dir(model_config), device)
     model = ConditionalCorrectionHead(
         input_embedding,
         output_embedding,
-        hidden_size=int(config["hidden_size"]),
+        hidden_size=input_embedding.shape[1],
         rank=int(config["rank"]),
         feature_size=int(config["feature_size"]),
         global_scale_init=float(config.get("global_scale_init", 0.05)),
     )
+    dependency_value = torch.load(args.dependency_checkpoint, map_location="cpu", weights_only=False)
+    dependency_head = DependencyHead(**dependency_value["config"])
+    dependency_head.load_compatible_state_dict(dependency_value["state_dict"])
+    dependency_head.to(device).eval()
+    attach_predicted_weights(dependency_head, train_records, device)
+    attach_predicted_weights(dependency_head, validation_records, device)
     oracle_train_pairs = select_oracle_tree_pairs(train_records)
     oracle_validation_pairs = select_oracle_tree_pairs(validation_records)
     train_dataset = CorrectionCacheDataset(
@@ -109,9 +114,7 @@ def main() -> None:
     )
     best_value = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
     model.load_state_dict(best_value["state_dict"])
-    dependency_value = torch.load(
-        args.dependency_checkpoint, map_location="cpu", weights_only=False
-    )
+    dependency_value = torch.load(args.dependency_checkpoint, map_location="cpu", weights_only=False)
     dependency_head = DependencyHead(**dependency_value["config"])
     dependency_head.load_compatible_state_dict(dependency_value["state_dict"])
     dependency_head.to(device)
@@ -153,9 +156,7 @@ def main() -> None:
     Path(adapted_checkpoint).unlink(missing_ok=True)
     report["learned_tree_domain_adaptation"] = {
         "train_tree_edge_count": sum(len(pairs) for pairs in train_pairs.values()),
-        "validation_tree_edge_count": sum(
-            len(pairs) for pairs in validation_pairs.values()
-        ),
+        "validation_tree_edge_count": sum(len(pairs) for pairs in validation_pairs.values()),
         "train_example_count": len(adapted_train),
         "validation_example_count": len(adapted_validation),
         "before": before_adaptation,
@@ -176,15 +177,12 @@ def main() -> None:
     report.update(
         {
             "schema": "treepc.correction_training_report.v1",
+            "conditional_objective": "cached_support_fixed_base_other_surrogate_kl",
             "device": str(device),
             "gpu_name": torch.cuda.get_device_name(device),
             "oracle_tree_training": {
-                "train_tree_edge_count": sum(
-                    len(pairs) for pairs in oracle_train_pairs.values()
-                ),
-                "validation_tree_edge_count": sum(
-                    len(pairs) for pairs in oracle_validation_pairs.values()
-                ),
+                "train_tree_edge_count": sum(len(pairs) for pairs in oracle_train_pairs.values()),
+                "validation_tree_edge_count": sum(len(pairs) for pairs in oracle_validation_pairs.values()),
                 "train_example_count": len(train_dataset),
                 "validation_example_count": len(validation_dataset),
             },

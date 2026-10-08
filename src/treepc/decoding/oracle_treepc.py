@@ -49,14 +49,10 @@ def online_oracle_generate(
         state.timestep_t = timesteps[step]
         state.timestep_s = timesteps[step + 1]
         base = adapter.forward_state(state, need_hidden=False)
-        confidence, proposals = adapter.propose_tokens_and_confidence(
-            base, "entropy", 0.0, None, None
-        )
+        confidence, proposals = adapter.propose_tokens_and_confidence(base, "entropy", 0.0, None, None)
         mask = base.masked_positions
-        budget = adapter.compute_commit_budget(
-            mask, timesteps[step], timesteps[step + 1], step == steps - 1
-        )
-        full_confidence = torch.full_like(state.input_ids, -torch.inf, dtype=base.aligned_logits.dtype)
+        budget = adapter.compute_commit_budget(mask, timesteps[step], timesteps[step + 1], step == steps - 1)
+        full_confidence = torch.full_like(state.input_ids, -torch.inf, dtype=confidence.dtype)
         full_confidence[mask] = confidence
         proposed_full = torch.full_like(state.input_ids, adapter.mask_token_id)
         proposed_full[mask] = proposals

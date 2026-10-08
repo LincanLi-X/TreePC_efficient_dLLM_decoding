@@ -110,11 +110,9 @@ def custom_independent_generate(
         pre = x.clone()
         output = adapter.forward_state(state, need_hidden=False)
         mask = output.masked_positions
-        confidence, proposals = adapter.propose_tokens_and_confidence(
-            output, alg, temperature, top_p, top_k
-        )
+        confidence, proposals = adapter.propose_tokens_and_confidence(output, alg, temperature, top_p, top_k)
         budget = adapter.compute_commit_budget(mask, timesteps[step], timesteps[step + 1], step == steps - 1)
-        full_confidence = torch.full_like(x, -torch.inf, dtype=output.aligned_logits.dtype)
+        full_confidence = torch.full_like(x, -torch.inf, dtype=confidence.dtype)
         full_confidence[mask] = confidence
         if budget > 0:
             if alg_temp is None or alg_temp == 0:

@@ -34,8 +34,7 @@ def _teacher_records(
         validate_trajectory_bundle(bundle)
         if int(bundle["teacher_steps"]) != expected_steps:
             raise ValueError(
-                f"Expected a {expected_steps}-NFE Teacher cache, got "
-                f"{bundle['teacher_steps']}: {path}"
+                f"Expected a {expected_steps}-NFE Teacher cache, got " f"{bundle['teacher_steps']}: {path}"
             )
         current = bundle.get("manifest_fingerprint")
         if fingerprint is not None and current != fingerprint:
@@ -51,9 +50,7 @@ def _teacher_records(
             }
             missing = required - record.keys()
             if missing:
-                raise ValueError(
-                    f"Teacher cache predates RQ1 marginal targets; missing {sorted(missing)}"
-                )
+                raise ValueError(f"Teacher cache predates RQ1 marginal targets; missing {sorted(missing)}")
             records[(dataset, record["sample_id"])].append(record)
     for values in records.values():
         values.sort(key=lambda row: float(row["timestep"]), reverse=True)
@@ -90,20 +87,13 @@ def _summarize(
                 "method": method,
                 "state_count": info["state_count"],
                 "token_count": int(values["marginal_kl"].numel()),
-                "comparable_anchor_rate": info["comparable_tokens"]
-                / max(info["teacher_tokens"], 1),
+                "comparable_anchor_rate": info["comparable_tokens"] / max(info["teacher_tokens"], 1),
                 "teacher_to_student_marginal_kl": float(values["marginal_kl"].mean()),
                 "teacher_top1_agreement": float(values["top1_agreement"].mean()),
-                f"teacher_token_recall_at_{recall_k}": float(
-                    values["teacher_token_recall"].mean()
-                ),
+                f"teacher_token_recall_at_{recall_k}": float(values["teacher_token_recall"].mean()),
                 "student_entropy": float(values["student_entropy"].mean()),
-                "student_top1_confidence": float(
-                    values["student_top1_confidence"].mean()
-                ),
-                "student_teacher_top1_probability": float(
-                    values["teacher_top1_probability"].mean()
-                ),
+                "student_top1_confidence": float(values["student_top1_confidence"].mean()),
+                "student_teacher_top1_probability": float(values["teacher_top1_probability"].mean()),
                 "student_teacher_top1_ece": expected_calibration_error(
                     values["student_top1_confidence"],
                     values["top1_agreement"],
@@ -148,9 +138,7 @@ def main() -> None:
     args = parser.parse_args()
 
     allowed_steps = set(args.steps)
-    teacher_by_sample, teacher_fingerprint = _teacher_records(
-        args.teacher_trajectories, args.teacher_steps
-    )
+    teacher_by_sample, teacher_fingerprint = _teacher_records(args.teacher_trajectories, args.teacher_steps)
     loaded = load_dream(args.device)
     student = load_pc_lora(loaded.model, args.pc_lora)
     student.eval()
@@ -164,9 +152,7 @@ def main() -> None:
             bundle = torch.load(path, map_location="cpu", weights_only=False)
             validate_counterfactual_bundle(bundle)
             if bundle.get("partition") != args.partition:
-                raise ValueError(
-                    f"Expected {args.partition!r}, got {bundle.get('partition')!r}: {path}"
-                )
+                raise ValueError(f"Expected {args.partition!r}, got {bundle.get('partition')!r}: {path}")
             if bundle.get("manifest_fingerprint") != teacher_fingerprint:
                 raise ValueError("Student and Teacher caches use different manifests")
             dataset = bundle["dataset"]
@@ -190,15 +176,13 @@ def main() -> None:
                 anchors = teacher_positions[comparable].to(loaded.device)
                 input_ids = state_ids.unsqueeze(0).to(loaded.device)
                 teacher_ids = target["marginal_topk_ids"][comparable].long().to(loaded.device)
-                teacher_log_probs = (
-                    target["marginal_topk_log_probs"][comparable].float().to(loaded.device)
-                )
+                teacher_log_probs = target["marginal_topk_log_probs"][comparable].float().to(loaded.device)
                 teacher_tail = target["marginal_tail_mass"][comparable].float().to(loaded.device)
                 with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
                     pc_logits = pc_student_logits(student, input_ids, anchors)
                     with student.disable_adapter():
                         dream_logits = pc_student_logits(student, input_ids, anchors)
-                for method, logits in (("dream", dream_logits), ("pc_lora", pc_logits)):
+                for method, logits in (("independent", dream_logits), ("pc_lora", pc_logits)):
                     key = (dataset, nfe, method)
                     _append_metrics(
                         grouped[key],
@@ -220,22 +204,21 @@ def main() -> None:
         loaded.model = None
         torch.cuda.empty_cache()
 
-    rows = _summarize(
-        grouped, metadata, recall_k=args.recall_k, ece_bins=args.ece_bins
-    )
+    rows = _summarize(grouped, metadata, recall_k=args.recall_k, ece_bins=args.ece_bins)
     if not rows:
         raise ValueError("RQ1 evaluation produced no rows")
     expected = {
         (dataset, nfe, method)
-        for dataset in ("gsm8k", "humaneval")
+        for dataset in {key[0] for key in grouped}
         for nfe in allowed_steps
-        for method in ("dream", "pc_lora")
+        for method in ("independent", "pc_lora")
     }
     actual = {(row["dataset"], row["student_nfe"], row["method"]) for row in rows}
     if actual != expected:
         raise ValueError(f"Incomplete RQ1 matrix: missing={sorted(expected - actual)}")
     payload = {
         "schema": "treepc.rq1_marginal_calibration.v1",
+        "backbone": loaded.metadata["backbone"],
         "partition": args.partition,
         "teacher_nfe": args.teacher_steps,
         "student_nfe": sorted(allowed_steps),

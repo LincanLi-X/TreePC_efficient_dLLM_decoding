@@ -51,7 +51,5 @@ def conditional_kl_loss(
     target_probabilities = target_all.exp()
     finite_target = torch.where(torch.isfinite(target_all), target_all, torch.zeros_like(target_all))
     per_item = (target_probabilities * (finite_target - predicted_log_probs)).sum(dim=-1)
-    delta_squared_norm = (
-        effective_correction.masked_fill(~support_mask, 0.0).square().sum(dim=-1)
-    )
+    delta_squared_norm = effective_correction.masked_fill(~support_mask, 0.0).square().sum(dim=-1)
     return per_item.mean() + delta_weight * delta_squared_norm.mean(), per_item
